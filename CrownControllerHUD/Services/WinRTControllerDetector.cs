@@ -1,299 +1,251 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using CrownControllerHUD.Models;
 using Microsoft.Extensions.Logging;
+using Windows.Gaming.Input;
 
 namespace CrownControllerHUD.Services
 {
     /// <summary>
-    /// WinRT Controller Detector using Windows.Gaming.Input
-    /// This uses reflection to work with WinRT types when CsWinRT projections are not fully available.
+    /// Detects controllers through <c>Windows.Gaming.Input</c> using the *directly
+    /// referenced* WinRT projections.
+    ///
+    /// Previously this class tried <c>Assembly.Load("Windows.Gaming.Input")</c>, which can
+    /// never work with a Windows-targeted TFM: the WinRT types are projected into the
+    /// application assembly, so there is no loadable "Windows.Gaming.Input" assembly to
+    /// reflect over. The projected types are used directly here instead.
+    ///
+    /// <see cref="RawGameController"/> is used rather than <c>Gamepad</c> because it is the
+    /// surface that exposes real device identity (<c>HardwareVendorId</c>,
+    /// <c>HardwareProductId</c>, <c>NonRoamableId</c>). The newer <c>Gamepad</c> projection
+    /// exposes no device identity at all, so it cannot be correlated to a physical device.
+    ///
+    /// This detector reports identity only and never asserts that a controller is switched
+    /// on - ControllerManager resolves connection state from a verified live signal.
     /// </summary>
     public class WinRTControllerDetector : BaseControllerDetector
     {
-        private readonly List<object> _gamepads = new();
-        private bool _winRTAvailable = false;
-        private Type? _gamepadType;
-        private Type? _batteryType;
-        private PropertyInfo? _deviceIdProperty;
-        private PropertyInfo? _vendorIdProperty;
-        private PropertyInfo? _productIdProperty;
-        private PropertyInfo? _batteryProperty;
-        private PropertyInfo? _headsetProperty;
-        private MethodInfo? _getReportMethod;
-        private PropertyInfo? _levelProperty;
-        private MethodInfo? _gamepadsGetter;
-        private Type? _deviceInformationType;
-        private MethodInfo? _createFromIdAsyncMethod;
-        private PropertyInfo? _propertiesProperty;
+        private readonly HashSet<string> _logged = new(StringComparer.OrdinalIgnoreCase);
 
         public override string Name => "WinRT (Windows.Gaming.Input)";
 
-        public override bool IsAvailable => _winRTAvailable;
+        public override bool IsAvailable { get; }
 
-        public WinRTControllerDetector(ILogger<WinRTControllerDetector> logger) : base(logger) 
+        public WinRTControllerDetector(ILogger<WinRTControllerDetector> logger) : base(logger)
         {
-            InitializeWinRTTypes();
-        }
-
-        private void InitializeWinRTTypes()
-        {
+            bool available;
             try
             {
-                // Try to load Windows.Gaming.Input assembly
-                var gamingInputAssembly = Assembly.Load("Windows.Gaming.Input");
-                if (gamingInputAssembly != null)
-                {
-                    _gamepadType = gamingInputAssembly.GetType("Windows.Gaming.Input.Gamepad");
-                    _batteryType = gamingInputAssembly.GetType("Windows.Gaming.Input.GamepadBattery");
-                    
-                    if (_gamepadType != null)
-                    {
-                        _gamepadsGetter = _gamepadType.GetProperty("Gamepads", BindingFlags.Public | BindingFlags.Static)?.GetGetMethod();
-                        _deviceIdProperty = _gamepadType.GetProperty("DeviceId");
-                        _vendorIdProperty = _gamepadType.GetProperty("VendorId");
-                        _productIdProperty = _gamepadType.GetProperty("ProductId");
-                        _batteryProperty = _gamepadType.GetProperty("Battery");
-                        _headsetProperty = _gamepadType.GetProperty("Headset");
-                    }
-
-                    if (_batteryType != null)
-                    {
-                        _getReportMethod = _batteryType.GetMethod("GetReport");
-                        var reportType = gamingInputAssembly.GetType("Windows.Gaming.Input.GamepadBatteryReport");
-                        if (reportType != null)
-                        {
-                            _levelProperty = reportType.GetProperty("Level");
-                        }
-                    }
-                }
-
-                // Try to load Windows.Devices.Enumeration
-                var devicesAssembly = Assembly.Load("Windows.Devices.Enumeration");
-                if (devicesAssembly != null)
-                {
-                    _deviceInformationType = devicesAssembly.GetType("Windows.Devices.Enumeration.DeviceInformation");
-                    _createFromIdAsyncMethod = _deviceInformationType?.GetMethod("CreateFromIdAsync", BindingFlags.Public | BindingFlags.Static);
-                    _propertiesProperty = _deviceInformationType?.GetProperty("Properties");
-                }
-
-                _winRTAvailable = _gamepadType != null && _gamepadsGetter != null;
-                
-                if (_winRTAvailable)
-                {
-                    _logger.LogInformation("WinRT types loaded successfully via reflection");
-                }
-                else
-                {
-                    _logger.LogWarning("WinRT types not available - Windows.Gaming.Input not found. Install Windows SDK for full WinRT support.");
-                }
+                _ = RawGameController.RawGameControllers.Count;
+                available = true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to load WinRT types via reflection. WinRT detector will be disabled.");
-                _winRTAvailable = false;
+                available = false;
+                _logger.LogWarning(ex, "Windows.Gaming.Input is not available; WinRT detector disabled");
             }
+
+            IsAvailable = available;
+            DiagnosticLogger.Info($"WinRTControllerDetector ctor: available={IsAvailable} (direct WinRT projections)");
         }
 
-        public override async Task InitializeAsync()
+        public override Task InitializeAsync()
         {
-            if (!_winRTAvailable)
-            {
-                _logger.LogInformation("WinRT Controller Detector skipped (not available)");
-                return;
-            }
+            if (!IsAvailable) return Task.CompletedTask;
 
-            _logger.LogInformation("Initializing WinRT Controller Detector");
-            
             try
             {
-                // Initialize Gamepad
-                var gamepads = _gamepadsGetter?.Invoke(null, null);
-                if (gamepads is System.Collections.IEnumerable enumerable)
-                {
-                    foreach (var gp in enumerable)
-                    {
-                        _gamepads.Add(gp);
-                    }
-                }
-                
-                _logger.LogInformation("WinRT Controller Detector initialized. Found {Count} gamepads", _gamepads.Count);
+                var count = RawGameController.RawGameControllers.Count;
+                DiagnosticLogger.Info($"[WinRT] initialized; {count} raw game controller(s) currently connected");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error initializing WinRT detector");
+                _logger.LogWarning(ex, "Enumerating Windows.Gaming.Input raw game controllers failed");
             }
 
-            await Task.CompletedTask;
+            return Task.CompletedTask;
         }
 
-        public override async Task<IEnumerable<ControllerInfo>> DetectControllersAsync()
+        public override Task<IEnumerable<ControllerInfo>> DetectControllersAsync()
         {
             var controllers = new List<ControllerInfo>();
-
-            if (!_winRTAvailable) return controllers;
+            if (!IsAvailable) return Task.FromResult<IEnumerable<ControllerInfo>>(controllers);
 
             try
             {
-                // Refresh gamepad list
-                var currentGamepadsObj = _gamepadsGetter?.Invoke(null, null);
-                var currentGamepads = new List<object>();
-                
-                if (currentGamepadsObj is System.Collections.IEnumerable enumerable)
+                foreach (var raw in RawGameController.RawGameControllers)
                 {
-                    foreach (var gp in enumerable)
-                    {
-                        currentGamepads.Add(gp);
-                    }
+                    var controller = BuildController(raw);
+                    if (controller != null)
+                        controllers.Add(controller);
                 }
 
                 lock (_lock)
                 {
-                    // Check for new gamepads
-                    foreach (var gp in currentGamepads)
-                    {
-                        if (!_gamepads.Contains(gp))
-                        {
-                            _gamepads.Add(gp);
-                            var controller = CreateControllerFromGamepad(gp);
-                            if (controller != null)
-                            {
-                                controllers.Add(controller);
-                                OnControllerDetected(controller);
-                            }
-                        }
-                    }
+                    var currentIds = controllers.Select(c => c.DeviceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    foreach (var id in _knownControllers.Keys.Where(k => !currentIds.Contains(k)).ToList())
+                        OnControllerRemoved(id);
 
-                    // Check for removed gamepads
-                    var removedGamepads = _gamepads.Where(gp => !currentGamepads.Contains(gp)).ToList();
-                    foreach (var gp in removedGamepads)
+                    foreach (var controller in controllers)
                     {
-                        _gamepads.Remove(gp);
-                        var deviceId = _deviceIdProperty?.GetValue(gp)?.ToString() ?? "";
-                        OnControllerRemoved(deviceId);
-                    }
-
-                    // Update existing gamepads
-                    foreach (var gp in currentGamepads)
-                    {
-                        var controller = CreateControllerFromGamepad(gp);
-                        if (controller != null && _knownControllers.TryGetValue(controller.DeviceId, out var existing))
+                        if (_knownControllers.TryGetValue(controller.DeviceId, out var existing))
                         {
                             controller.ConnectedAt = existing.ConnectedAt;
+                            _knownControllers[controller.DeviceId] = controller;
                             OnControllerUpdated(controller);
-                            controllers.Add(controller);
                         }
-                        else if (controller != null)
+                        else
                         {
-                            controllers.Add(controller);
+                            OnControllerDetected(controller);
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error detecting controllers via WinRT");
+                _logger.LogError(ex, "Error detecting controllers via Windows.Gaming.Input");
             }
 
-            return controllers;
+            return Task.FromResult<IEnumerable<ControllerInfo>>(controllers);
         }
 
-        private ControllerInfo? CreateControllerFromGamepad(object gamepad)
+        private ControllerInfo? BuildController(RawGameController raw)
         {
             try
             {
-                var deviceId = _deviceIdProperty?.GetValue(gamepad)?.ToString() ?? "";
-                var vendorId = (ushort)(_vendorIdProperty?.GetValue(gamepad) ?? (ushort)0);
-                var productId = (ushort)(_productIdProperty?.GetValue(gamepad) ?? (ushort)0);
+                ushort vendorId = raw.HardwareVendorId;
+                ushort productId = raw.HardwareProductId;
+                var displayName = raw.DisplayName ?? string.Empty;
+                var nonRoamableId = raw.NonRoamableId ?? string.Empty;
 
-                var controller = CreateBaseControllerInfo(deviceId, "Xbox Controller");
-                
-                // Identify controller type from VID/PID
-                controller.Type = KnownControllerIds.IdentifyController(vendorId, productId);
+                // Only report devices that are unambiguously game controllers, so a racing
+                // wheel or flight stick raw controller cannot slip in.
+                bool identified = KnownControllerIds.TryIdentifyExact(vendorId, productId, out _);
+                bool plausible = KnownControllerIds.IsGamepadVendor(vendorId) && LooksLikeGamepad(displayName);
+                if (!identified && !plausible)
+                {
+                    Log(raw, "not a recognised gamepad");
+                    return null;
+                }
+
+                // Resolve the Plug-and-play identity so this record collapses into the same
+                // physical device as the PnP/HID providers.
+                var instanceId = PnpDeviceEnumerator.InterfacePathToInstanceId(nonRoamableId);
+                Guid container = Guid.Empty;
+
+                if (!string.IsNullOrEmpty(instanceId))
+                {
+                    try { container = PnpDeviceEnumerator.Describe(instanceId!).ContainerId; }
+                    catch { /* handled by the container check below */ }
+                }
+
+                if (!PnpDeviceEnumerator.IsUsableContainer(container))
+                {
+                    // Without a container this record cannot be proven to belong to a distinct
+                    // physical device; emitting it could resurrect duplicate controller
+                    // entries, so it is skipped (the PnP detector still reports the pad).
+                    Log(raw, "no usable device container for NonRoamableId");
+                    return null;
+                }
+
+                var containerText = container.ToString("D").ToUpperInvariant();
+                var controller = CreateBaseControllerInfo(
+                    $"CTRL\\{containerText}\\{vendorId:X4}_{productId:X4}",
+                    KnownControllerIds.IdentifyController(vendorId, productId).GetDisplayName());
+
+                controller.Provider = "WinRT";
                 controller.VendorId = vendorId;
                 controller.ProductId = productId;
-                
-                // Determine connection type
-                controller.ConnectionType = DetermineConnectionType(deviceId);
-                
-                // Get battery info
-                var battery = _batteryProperty?.GetValue(gamepad);
-                if (battery != null)
+                controller.Type = KnownControllerIds.IdentifyController(vendorId, productId);
+                controller.ContainerId = container.ToString("D");
+                controller.PnpInstanceId = instanceId;
+                controller.ConnectionType = DetermineTransport(nonRoamableId, instanceId);
+
+                if (controller.ConnectionType == ConnectionType.Bluetooth)
                 {
-                    controller.HasBattery = true;
-                    controller.SupportsBatteryReporting = true;
-                    
-                    var report = _getReportMethod?.Invoke(battery, null);
-                    if (report != null && _levelProperty != null)
-                    {
-                        var level = (double)(_levelProperty.GetValue(report) ?? 0.0);
-                        controller.BatteryPercentage = (int)Math.Round(level * 100);
-                        controller.BatteryLastUpdated = DateTime.Now;
-                        
-                        controller.BatteryState = controller.BatteryPercentage switch
-                        {
-                            >= 95 => BatteryState.Full,
-                            >= 50 => BatteryState.High,
-                            >= 15 => BatteryState.Medium,
-                            >= 5 => BatteryState.Low,
-                            _ => BatteryState.Critical
-                        };
-                    }
-                    
-                    controller.SupportsChargingStatus = false;
-                }
-                else
-                {
-                    controller.HasBattery = false;
-                    controller.SupportsBatteryReporting = false;
+                    var mac = DeviceIdentity.FromPnpInstanceId(instanceId)
+                              ?? DeviceIdentity.FromAssociationEndpointId(nonRoamableId);
+                    if (mac != null)
+                        controller.BluetoothAddress = mac;
                 }
 
-                // Capabilities
-                var headset = _headsetProperty?.GetValue(gamepad);
-                controller.SupportsVibration = true;
-                controller.SupportsAudio = headset != null;
-                controller.SupportsWireless = controller.ConnectionType != ConnectionType.USB;
+                if (!string.IsNullOrWhiteSpace(displayName))
+                    controller.Name = displayName;
+
+                controller.SupportsVibration = raw.ForceFeedbackMotors.Count > 0;
+                controller.SupportsWireless = raw.IsWireless || controller.ConnectionType != ConnectionType.USB;
+
+                DiagnosticLogger.Info(
+                    $"[WinRT] accept vid=0x{vendorId:X4} pid=0x{productId:X4} transport={controller.ConnectionType} " +
+                    $"container={controller.ContainerId} addr={controller.BluetoothAddress ?? "<none>"} " +
+                    $"wireless={raw.IsWireless} name='{controller.Name}' nonRoamable='{nonRoamableId}'");
 
                 return controller;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating controller info from gamepad");
+                _logger.LogDebug(ex, "Error building controller from Windows.Gaming.Input raw game controller");
                 return null;
             }
         }
 
-        private ConnectionType DetermineConnectionType(string deviceId)
+        private static bool LooksLikeGamepad(string text)
         {
-            var lower = deviceId.ToLower();
-            
-            if (lower.Contains("bluetooth") || lower.Contains("bt"))
+            if (string.IsNullOrEmpty(text)) return false;
+
+            var lower = text.ToLowerInvariant();
+            return lower.Contains("gamepad")
+                || lower.Contains("game controller")
+                || lower.Contains("joystick")
+                || lower.Contains("xinput")
+                || lower.Contains("xbox")
+                || lower.Contains("wireless controller")
+                || lower.Contains("dualshock")
+                || lower.Contains("dualsense")
+                || lower.Contains("pro controller");
+        }
+
+        private static ConnectionType DetermineTransport(string nonRoamableId, string? instanceId)
+        {
+            var text = (nonRoamableId + " " + (instanceId ?? string.Empty)).ToLowerInvariant();
+
+            if (text.Contains("bthle") || text.Contains("bthenum") || text.Contains("bluetooth") || text.Contains("00001812"))
                 return ConnectionType.Bluetooth;
-            if (lower.Contains("xboxwireless") || lower.Contains("wireless"))
+
+            if (text.Contains("xboxwireless") || text.Contains("nx_adapter"))
                 return ConnectionType.XboxWirelessAdapter;
-            if (lower.Contains("usb") || lower.Contains("vid_045e&pid"))
-                return ConnectionType.USB;
-                
-            return ConnectionType.Bluetooth;
+
+            return ConnectionType.USB;
         }
 
-        public override async Task StartMonitoringAsync()
+        private void Log(RawGameController raw, string reason)
         {
-            if (!_winRTAvailable || _isMonitoring) return;
-            _isMonitoring = true;
-            _logger.LogInformation("WinRT controller monitoring started");
-            
-            await DetectControllersAsync();
+            var key = $"{raw.NonRoamableId}|{reason}";
+            lock (_logged)
+            {
+                if (!_logged.Add(key)) return;
+            }
+
+            DiagnosticLogger.Info(
+                $"[WinRT] reject reason={reason} vid=0x{raw.HardwareVendorId:X4} pid=0x{raw.HardwareProductId:X4} " +
+                $"name='{raw.DisplayName}' nonRoamable='{raw.NonRoamableId}'");
         }
 
-        public override async Task StopMonitoringAsync()
+        public override Task StartMonitoringAsync()
+        {
+            if (!IsAvailable || _isMonitoring) return Task.CompletedTask;
+            _isMonitoring = true;
+            _logger.LogInformation("WinRT (Windows.Gaming.Input) monitoring started");
+            return Task.CompletedTask;
+        }
+
+        public override Task StopMonitoringAsync()
         {
             _isMonitoring = false;
-            _logger.LogInformation("WinRT controller monitoring stopped");
-            await Task.CompletedTask;
+            _logger.LogInformation("WinRT (Windows.Gaming.Input) monitoring stopped");
+            return Task.CompletedTask;
         }
     }
 }

@@ -12,6 +12,7 @@ namespace CrownControllerHUD.Services
     {
         private readonly List<HidDevice> _monitoredDevices = new();
         private readonly Dictionary<string, HidStream> _deviceStreams = new();
+        private readonly HashSet<string> _loggedCandidates = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Threading.Timer? _pollTimer;
         private bool _disposed = false;
 
@@ -22,6 +23,7 @@ namespace CrownControllerHUD.Services
         public HidControllerDetector(ILogger<HidControllerDetector> logger) : base(logger)
         {
             _pollTimer = new System.Threading.Timer(async _ => await PollDevicesAsync(), null, Timeout.Infinite, Timeout.Infinite);
+            DiagnosticLogger.Info("HidControllerDetector ctor: end");
         }
 
         public override async Task InitializeAsync()
@@ -47,7 +49,9 @@ namespace CrownControllerHUD.Services
                     try
                     {
                         // Filter for gamepad-like devices
-                        if (!IsGamepadDevice(device)) continue;
+                        bool isGamepad = IsGamepadDevice(device);
+                        LogCandidate(device, isGamepad);
+                        if (!isGamepad) continue;
 
                         var deviceId = GetDeviceId(device);
                         
@@ -104,19 +108,32 @@ namespace CrownControllerHUD.Services
 
         private bool IsGamepadDevice(HidDevice device)
         {
-            // Check for known gamepad VID/PID combinations
-            var type = KnownControllerIds.IdentifyController((ushort)device.VendorID, (ushort)device.ProductID);
-            if (type != ControllerType.Unknown) return true;
-
-            // Check for generic HID gamepad (Usage Page 0x01, Usage 0x05 - Gamepad)
             try
             {
-                // var caps = device.GetCapacities(); // This method might not exist
-                // This is a simplified check - in reality we'd parse the report descriptor
-                return device.VendorID == 0x045E || // Microsoft
-                       device.VendorID == 0x054C || // Sony
-                       device.VendorID == 0x057E || // Nintendo
-                       device.VendorID == 0x28DE;   // Valve
+                var path = device.DevicePath ?? string.Empty;
+
+                // Windows-internal aggregate devices that merely *report* the Microsoft VID.
+                // BUTTONCONVERTER\CONVERTEDDEVICE collections report VID 0x045E / PID 0x0000
+                // and are NOT controllers - accepting them produced phantom "XInput
+                // Controller" entries that were labelled USB and vanished with the pad.
+                if (path.IndexOf("converteddevice", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+                if (path.IndexOf("hid_device_system_vhf", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+                var vid = (ushort)device.VendorID;
+                var pid = (ushort)device.ProductID;
+
+                // A real controller never reports PID 0.
+                if (pid == 0) return false;
+
+                // Exact VID/PID match from the known-controller tables is authoritative.
+                if (KnownControllerIds.TryIdentifyExact(vid, pid, out _)) return true;
+
+                // Otherwise require a known gamepad vendor AND a gamepad-ish descriptor.
+                // Never match on the Microsoft VID alone.
+                if (KnownControllerIds.IsGamepadVendor(vid) && LooksLikeGamepad(GetFriendlyNameSafe(device)))
+                    return true;
+
+                return false;
             }
             catch
             {
@@ -124,27 +141,115 @@ namespace CrownControllerHUD.Services
             }
         }
 
+        private static string GetFriendlyNameSafe(HidDevice device)
+        {
+            try { return device.GetFriendlyName() ?? string.Empty; }
+            catch { return string.Empty; }
+        }
+
+        private static bool LooksLikeGamepad(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+
+            var t = text.ToLowerInvariant();
+            return t.Contains("gamepad")
+                || t.Contains("joystick")
+                || t.Contains("xinput")
+                || t.Contains("game controller")
+                || t.Contains("wireless controller")
+                || t.Contains("dualshock")
+                || t.Contains("dualsense")
+                || t.Contains("xbox");
+        }
+
+        private void LogCandidate(HidDevice device, bool accepted)
+        {
+            // Only log plausible-controller candidates (gamepad vendors or converted nodes),
+            // once each, so the diagnostic log stays readable.
+            try
+            {
+                var vid = (ushort)device.VendorID;
+                var pid = (ushort)device.ProductID;
+                var path = device.DevicePath ?? string.Empty;
+
+                bool interesting = KnownControllerIds.IsGamepadVendor(vid)
+                    || path.IndexOf("converteddevice", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!interesting) return;
+
+                lock (_loggedCandidates)
+                {
+                    if (!_loggedCandidates.Add(path)) return;
+                }
+
+                var instanceId = PnpDeviceEnumerator.InterfacePathToInstanceId(path) ?? "<none>";
+                Guid container = Guid.Empty;
+                try { container = PnpDeviceEnumerator.GetContainerIdForInterfacePath(path); } catch { }
+
+                DiagnosticLogger.Info(
+                    $"[HID] {(accepted ? "ACCEPT" : "reject")} vid=0x{vid:X4} pid=0x{pid:X4} " +
+                    $"container={(PnpDeviceEnumerator.IsUsableContainer(container) ? container.ToString() : "<none>")} " +
+                    $"instance={instanceId} path={path}");
+            }
+            catch
+            {
+                // logging must never break detection
+            }
+        }
+
         private string GetDeviceId(HidDevice device)
         {
-            return $"HID\\VID_{device.VendorID:X4}&PID_{device.ProductID:X4}&MI_00\\{device.DevicePath}";
+            var instanceId = PnpDeviceEnumerator.InterfacePathToInstanceId(device.DevicePath);
+            if (!string.IsNullOrEmpty(instanceId))
+                return instanceId!;
+
+            return $"HID\\VID_{device.VendorID:X4}&PID_{device.ProductID:X4}\\{device.DevicePath}";
         }
 
         private ControllerInfo? CreateControllerFromHidDevice(HidDevice device)
         {
             try
             {
-                var controller = CreateBaseControllerInfo(GetDeviceId(device), device.GetFriendlyName() ?? "HID Gamepad");
-                
+                var friendlyName = GetFriendlyNameSafe(device);
+                var controller = CreateBaseControllerInfo(
+                    GetDeviceId(device),
+                    string.IsNullOrWhiteSpace(friendlyName) ? "HID Gamepad" : friendlyName);
+
+                controller.Provider = "HID";
                 controller.VendorId = (ushort)device.VendorID;
                 controller.ProductId = (ushort)device.ProductID;
                 controller.Type = KnownControllerIds.IdentifyController((ushort)device.VendorID, (ushort)device.ProductID);
-                
+                if (controller.Type == ControllerType.Unknown && LooksLikeGamepad(friendlyName))
+                    controller.Type = ControllerType.GenericHID;
+
+                // PnP identity so the manager can correlate this with the PnP/BLE provider.
+                controller.PnpInstanceId = PnpDeviceEnumerator.InterfacePathToInstanceId(device.DevicePath);
+                try
+                {
+                    var container = PnpDeviceEnumerator.GetContainerIdForInterfacePath(device.DevicePath);
+                    if (PnpDeviceEnumerator.IsUsableContainer(container))
+                        controller.ContainerId = container.ToString();
+                }
+                catch { }
+
                 // Determine connection type from device path
                 controller.ConnectionType = DetermineConnectionType(device);
-                
+
+                // Bluetooth address (physical identity) so the manager can look up live
+                // connection state for this controller.
+                if (controller.ConnectionType == ConnectionType.Bluetooth)
+                {
+                    var mac = DeviceIdentity.FromPnpInstanceId(controller.PnpInstanceId)
+                              ?? DeviceIdentity.FromAssociationEndpointId(device.DevicePath);
+                    if (mac != null)
+                    {
+                        controller.BluetoothAddress = mac;
+                        controller.SerialNumber ??= mac;
+                    }
+                }
+
                 // Try to read battery info via HID
                 ReadBatteryInfo(device, controller);
-                
+
                 // Capabilities
                 controller.SupportsVibration = HasVibrationSupport(device);
                 controller.SupportsBatteryReporting = controller.BatteryPercentage.HasValue;
@@ -162,13 +267,21 @@ namespace CrownControllerHUD.Services
 
         private ConnectionType DetermineConnectionType(HidDevice device)
         {
-            var path = device.DevicePath.ToLower();
-            
-            if (path.Contains("bluetooth") || path.Contains("bt_"))
+            var path = (device.DevicePath ?? string.Empty).ToLowerInvariant();
+
+            if (path.Contains("bthle") || path.Contains("bthenum") || path.Contains("bluetooth"))
                 return ConnectionType.Bluetooth;
-            if (path.Contains("xbox") || path.Contains("wireless"))
+            if (path.Contains("xboxwireless") || path.Contains("nx_adapter"))
                 return ConnectionType.XboxWirelessAdapter;
-            
+
+            var instanceId = (PnpDeviceEnumerator.InterfacePathToInstanceId(device.DevicePath) ?? string.Empty).ToUpperInvariant();
+            if (instanceId.StartsWith("BTHLE") || instanceId.StartsWith("BTHENUM"))
+                return ConnectionType.Bluetooth;
+
+            // HID-over-GATT (Bluetooth LE) devices carry the 0x1812 service UUID in their path.
+            if (path.Contains("00001812"))
+                return ConnectionType.Bluetooth;
+
             return ConnectionType.USB;
         }
 

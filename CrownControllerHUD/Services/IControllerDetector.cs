@@ -84,8 +84,11 @@ namespace CrownControllerHUD.Services
             {
                 DeviceId = deviceId,
                 Name = name,
-                ConnectedAt = DateTime.Now,
-                IsConnected = true
+                // Detectors describe *identity*, never connection state: being enumerated
+                // does not prove a controller is switched on (paired Bluetooth devices stay
+                // enumerated while powered off). ControllerManager resolves the live state.
+                ConnectionState = ControllerConnectionState.Unknown,
+                IsConnected = false
             };
         }
     }

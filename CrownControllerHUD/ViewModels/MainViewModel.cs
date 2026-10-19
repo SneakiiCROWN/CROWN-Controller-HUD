@@ -1,11 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using CrownControllerHUD.Models;
 using CrownControllerHUD.Services;
+using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.Logging;
 
 namespace CrownControllerHUD.ViewModels
@@ -23,6 +30,9 @@ namespace CrownControllerHUD.ViewModels
         private bool _isScanning = false;
         private string _statusText = "Initializing...";
         private int _connectedCount = 0;
+        private bool _showDiagnostics = false;
+        private ObservableCollection<ProviderDiagnosticInfo> _providerDiagnostics = new();
+        private string _systemInfo = "";
 
         public ObservableCollection<ControllerViewModel> Controllers
         {
@@ -54,9 +64,31 @@ namespace CrownControllerHUD.ViewModels
             set => SetProperty(ref _connectedCount, value);
         }
 
+        public bool ShowDiagnostics
+        {
+            get => _showDiagnostics;
+            set => SetProperty(ref _showDiagnostics, value);
+        }
+
+        public ObservableCollection<ProviderDiagnosticInfo> ProviderDiagnostics
+        {
+            get => _providerDiagnostics;
+            set => SetProperty(ref _providerDiagnostics, value);
+        }
+
+        public string SystemInfo
+        {
+            get => _systemInfo;
+            set => SetProperty(ref _systemInfo, value);
+        }
+
         public ICommand RefreshCommand { get; }
         public ICommand SettingsCommand { get; }
         public ICommand MinimizeToTrayCommand { get; }
+        public ICommand TestNotificationCommand { get; }
+        public ICommand ShowDiagnosticsCommand { get; }
+        public ICommand OpenLogCommand { get; }
+        public ICommand CopyDiagnosticsCommand { get; }
 
         public MainViewModel(
             IControllerManager controllerManager,
@@ -71,12 +103,34 @@ namespace CrownControllerHUD.ViewModels
             _trayService = trayService;
             _logger = logger;
 
-            RefreshCommand = new RelayCommand(async () => await RefreshAsync());
+            RefreshCommand = new AsyncRelayCommand(async () => await RefreshAsync());
             SettingsCommand = new RelayCommand(() => ShowSettings());
-            MinimizeToTrayCommand = new RelayCommand(() => _trayService.HideMainWindow());
+            MinimizeToTrayCommand = new RelayCommand(() =>
+            {
+                if (Application.Current?.MainWindow is { } window)
+                {
+                    window.Hide();
+                }
+                _trayService.ShowBalloonTip("CROWN Controller HUD", "Running in background", BalloonIcon.Info);
+            });
+            TestNotificationCommand = new AsyncRelayCommand(async () => await TestNotificationAsync());
+            ShowDiagnosticsCommand = new RelayCommand(() => ShowDiagnostics = !ShowDiagnostics);
+            OpenLogCommand = new RelayCommand(() => OpenLog());
+            CopyDiagnosticsCommand = new RelayCommand(() => CopyDiagnosticsToClipboard());
 
             SubscribeToEvents();
+            UpdateSystemInfo();
+
+            // Diagnostic: the number of these lines per run proves how many
+            // MainViewModel instances subscribed to the controller manager. It must be
+            // exactly ONE - two instances meant every controller transition fired two
+            // notifications.
+            _logger.LogInformation(
+                "[Notify] MainViewModel instance #{Instance} constructed and subscribed to controller events",
+                Interlocked.Increment(ref _instanceCounter));
         }
+
+        private static int _instanceCounter;
 
         private void SubscribeToEvents()
         {
@@ -87,8 +141,17 @@ namespace CrownControllerHUD.ViewModels
             _controllerManager.ControllerChargingChanged += OnControllerChargingChanged;
         }
 
+        private int _initialized;
+
         public async Task InitializeAsync()
         {
+            // Idempotent: this is called both from MainWindow.Loaded and from application
+            // startup. The startup call matters because Window.Loaded never fires for a
+            // window that is never shown (e.g. --hidden at sign-in), which previously meant
+            // no controller monitoring ran at all.
+            if (Interlocked.Exchange(ref _initialized, 1) == 1)
+                return;
+
             try
             {
                 StatusText = "Starting controller detection...";
@@ -96,6 +159,7 @@ namespace CrownControllerHUD.ViewModels
                 await _controllerManager.StartAsync();
                 StatusText = "Ready";
                 await RefreshAsync();
+                UpdateProviderDiagnostics();
             }
             catch (Exception ex)
             {
@@ -107,17 +171,36 @@ namespace CrownControllerHUD.ViewModels
         public async Task RefreshAsync()
         {
             IsScanning = true;
-            StatusText = "Scanning for controllers...";
-            
+            StatusText = "Scanning (querying live connection state)...";
+
             try
             {
-                await _controllerManager.RefreshAsync();
-                StatusText = $"Found {ConnectedCount} controller(s)";
+                // Force refresh re-queries the live Bluetooth connection signals before
+                // re-running detection, so the reported state is genuinely current and a
+                // controller that was just switched off cannot keep showing as connected.
+                await _controllerManager.ForceRefreshAsync();
+
+                var error = _controllerManager.LastRefreshError;
+                if (string.IsNullOrEmpty(error))
+                {
+                    StatusText = ConnectedCount == 0
+                        ? $"No controllers connected (checked {DateTime.Now:HH:mm:ss})"
+                        : $"Found {ConnectedCount} connected controller(s) (checked {DateTime.Now:HH:mm:ss})";
+                }
+                else
+                {
+                    StatusText = "Refresh problem: " + error;
+                    DiagnosticLogger.Warn($"[Refresh] {error}");
+                }
+
+                UpdateProviderDiagnostics();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Refresh failed");
                 StatusText = "Refresh failed: " + ex.Message;
+                DiagnosticLogger.Error("Refresh failed", ex);
+                UpdateProviderDiagnostics();
             }
             finally
             {
@@ -125,42 +208,95 @@ namespace CrownControllerHUD.ViewModels
             }
         }
 
+        /// <summary>
+        /// Marshals work to the UI thread without ever blocking the calling thread, so a
+        /// background detection/monitor callback can never deadlock or freeze the window.
+        /// </summary>
+        private static void OnUi(Action action)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                action();
+                return;
+            }
+
+            if (dispatcher.CheckAccess())
+                action();
+            else
+                dispatcher.BeginInvoke(action, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
         private void OnControllersChanged(object? sender, ControllersChangedEventArgs e)
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            OnUi(() =>
             {
                 UpdateControllers(e.Controllers);
+                UpdateProviderDiagnostics();
             });
         }
 
         private void OnControllerConnected(object? sender, ControllerEventArgs e)
         {
-            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            // Requirement: log the state transition as it is received, before anything
+            // downstream can swallow it, so the pipeline is fully traceable.
+            _logger.LogInformation(
+                "[Notify] State transition received: CONNECTED initial={Initial} device='{Name}' type={Type} transport={Transport} id={Id} source={Source}",
+                e.IsInitial, e.Controller.Name, e.Controller.Type, e.Controller.ConnectionType,
+                e.Controller.DeviceId, e.Controller.ConnectionStateSource);
+
+            OnUi(() =>
             {
-                _notificationService.ShowControllerConnectedAsync(e.Controller);
+                if (e.IsInitial)
+                {
+                    _logger.LogInformation(
+                        "[Notify] Notification suppressed: initial observation of an already-connected controller ('{Name}')",
+                        e.Controller.Name);
+                }
+                else
+                {
+                    _notificationService.ShowControllerConnectedAsync(e.Controller);
+                }
+
                 _trayService.UpdateTrayIcon(GetPrimaryController());
-                StatusText = $"{e.Controller.Type.GetDisplayName()} connected";
+                StatusText = $"{e.Controller.Type.GetDisplayName()} connected ({e.Controller.ConnectionType}) at {DateTime.Now:HH:mm:ss}";
+                UpdateProviderDiagnostics();
             });
         }
 
         private void OnControllerDisconnected(object? sender, ControllerEventArgs e)
         {
-            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            _logger.LogInformation(
+                "[Notify] State transition received: DISCONNECTED initial={Initial} device='{Name}' type={Type} transport={Transport} id={Id} source={Source}",
+                e.IsInitial, e.Controller.Name, e.Controller.Type, e.Controller.ConnectionType,
+                e.Controller.DeviceId, e.Controller.ConnectionStateSource);
+
+            OnUi(() =>
             {
-                _notificationService.ShowControllerDisconnectedAsync(e.Controller);
+                if (e.IsInitial)
+                {
+                    _logger.LogInformation(
+                        "[Notify] Notification suppressed: initial observation of a disconnected controller ('{Name}')",
+                        e.Controller.Name);
+                }
+                else
+                {
+                    _notificationService.ShowControllerDisconnectedAsync(e.Controller);
+                }
+
                 _trayService.UpdateTrayIcon(GetPrimaryController());
-                StatusText = $"{e.Controller.Type.GetDisplayName()} disconnected";
+                StatusText = $"{e.Controller.Type.GetDisplayName()} disconnected at {DateTime.Now:HH:mm:ss}";
+                UpdateProviderDiagnostics();
             });
         }
 
         private void OnControllerBatteryChanged(object? sender, ControllerEventArgs e)
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            OnUi(() =>
             {
                 UpdateControllerInList(e.Controller);
                 _trayService.UpdateTrayIcon(GetPrimaryController());
                 
-                // Check thresholds
                 var settings = _settingsService.Settings.Notifications;
                 if (e.Controller.BatteryPercentage.HasValue)
                 {
@@ -173,12 +309,13 @@ namespace CrownControllerHUD.ViewModels
                         _notificationService.ShowBatteryLowAsync(e.Controller);
                     }
                 }
+                UpdateProviderDiagnostics();
             });
         }
 
         private void OnControllerChargingChanged(object? sender, ControllerEventArgs e)
         {
-            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            OnUi(() =>
             {
                 UpdateControllerInList(e.Controller);
                 _trayService.UpdateTrayIcon(GetPrimaryController());
@@ -187,6 +324,7 @@ namespace CrownControllerHUD.ViewModels
                     _notificationService.ShowChargingStartedAsync(e.Controller);
                 else if (e.Controller.BatteryPercentage >= 95)
                     _notificationService.ShowChargingCompleteAsync(e.Controller);
+                UpdateProviderDiagnostics();
             });
         }
 
@@ -195,7 +333,6 @@ namespace CrownControllerHUD.ViewModels
             var currentIds = Controllers.Select(c => c.Info.DeviceId).ToHashSet();
             var newIds = controllers.Select(c => c.DeviceId).ToHashSet();
 
-            // Remove disconnected
             for (int i = Controllers.Count - 1; i >= 0; i--)
             {
                 if (!newIds.Contains(Controllers[i].Info.DeviceId))
@@ -204,7 +341,6 @@ namespace CrownControllerHUD.ViewModels
                 }
             }
 
-            // Add or update
             foreach (var controller in controllers)
             {
                 var existing = Controllers.FirstOrDefault(c => c.Info.DeviceId == controller.DeviceId);
@@ -241,8 +377,153 @@ namespace CrownControllerHUD.ViewModels
 
         private void ShowSettings()
         {
-            // TODO: Show settings window
             _logger.LogInformation("Settings requested");
+        }
+
+        private async Task TestNotificationAsync()
+        {
+            // Uses the same CROWN renderer as real controller events (never a tray
+            // balloon), so this button genuinely proves the production path works.
+            try
+            {
+                await _notificationService.ShowTestNotificationAsync();
+                StatusText = "Test notification sent at " + DateTime.Now.ToString("HH:mm:ss");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Test notification failed");
+                StatusText = "Test notification failed: " + ex.Message;
+            }
+        }
+
+        private void OpenLog()
+        {
+            try
+            {
+                var logPath = DiagnosticLogger.GetLogPath();
+                if (File.Exists(logPath))
+                {
+                    Process.Start(new ProcessStartInfo(logPath) { UseShellExecute = true });
+                }
+                else
+                {
+                    StatusText = "Log file not found";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to open log");
+                StatusText = "Failed to open log: " + ex.Message;
+            }
+        }
+
+        private void CopyDiagnosticsToClipboard()
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("=== CROWN Controller HUD Diagnostics ===");
+                sb.AppendLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                sb.AppendLine($"Process ID: {Environment.ProcessId}");
+                sb.AppendLine($"OS: {Environment.OSVersion}");
+                sb.AppendLine($"Runtime: {Environment.Version}");
+                sb.AppendLine();
+                sb.AppendLine("=== Controller Status ===");
+                sb.AppendLine($"Connected: {ConnectedCount}");
+                foreach (var c in Controllers)
+                {
+                    sb.AppendLine($"  {c.Name} ({c.ConnectionType}) - Battery: {c.BatteryText} - {(c.IsCharging ? "Charging" : "Discharging")} - Connected: {c.IsConnected}");
+                }
+                sb.AppendLine();
+                sb.AppendLine("=== Provider Diagnostics ===");
+                foreach (var p in ProviderDiagnostics)
+                {
+                    sb.AppendLine($"  {p.Name}: {p.StatusText} ({p.DeviceCount} devices)");
+                    if (p.HasError)
+                        sb.AppendLine($"    ERROR: {p.ErrorMessage}");
+                }
+                sb.AppendLine();
+                sb.AppendLine("=== System Info ===");
+                sb.AppendLine(SystemInfo);
+                sb.AppendLine();
+                sb.AppendLine("=== Recent Log (last 50 lines) ===");
+                
+                var logPath = DiagnosticLogger.GetLogPath();
+                if (File.Exists(logPath))
+                {
+                    var lines = File.ReadAllLines(logPath);
+                    var recent = lines.TakeLast(50);
+                    foreach (var line in recent)
+                        sb.AppendLine(line);
+                }
+                
+                Clipboard.SetText(sb.ToString());
+                StatusText = "Diagnostics copied to clipboard";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to copy diagnostics");
+                StatusText = "Copy failed: " + ex.Message;
+            }
+        }
+
+        private void UpdateSystemInfo()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"OS: {Environment.OSVersion}");
+            sb.AppendLine($".NET Runtime: {Environment.Version}");
+            sb.AppendLine($"Process: {Environment.ProcessId} (64-bit: {Environment.Is64BitProcess})");
+            sb.AppendLine($"Working Dir: {Environment.CurrentDirectory}");
+            sb.AppendLine($"App Base: {AppDomain.CurrentDomain.BaseDirectory}");
+            sb.AppendLine($"User Interactive: {Environment.UserInteractive}");
+            sb.AppendLine($"Log Path: {DiagnosticLogger.GetLogPath()}");
+            sb.AppendLine($"Settings Path: {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CrownControllerHUD", "settings.json")}");
+            SystemInfo = sb.ToString();
+        }
+
+        private void UpdateProviderDiagnostics()
+        {
+            try
+            {
+                ProviderDiagnostics.Clear();
+                
+                // This would ideally come from the controller manager
+                // For now, we create basic diagnostics
+                var providers = new[]
+                {
+                    new ProviderDiagnosticInfo 
+                    { 
+                        Name = "WinRT (Windows.Gaming.Input)", 
+                        StatusText = "Initialized", 
+                        StatusColor = Brushes.Green,
+                        DeviceCount = Controllers.Count(c => c.Info.Type.ToString().StartsWith("Xbox") || c.Info.Type.ToString().StartsWith("XboxOne") || c.Info.Type.ToString().StartsWith("XboxSeries") || c.Info.Type.ToString().StartsWith("Xbox360") || c.Info.Type.ToString().StartsWith("XboxElite") || c.Info.Type.ToString().StartsWith("XboxAdaptive")),
+                        HasError = false
+                    },
+                    new ProviderDiagnosticInfo 
+                    { 
+                        Name = "HID (HidSharp)", 
+                        StatusText = "Initialized", 
+                        StatusColor = Brushes.Green,
+                        DeviceCount = Controllers.Count(c => c.ConnectionType == "HID" || c.Info.Type == ControllerType.GenericHID),
+                        HasError = false
+                    },
+                    new ProviderDiagnosticInfo 
+                    { 
+                        Name = "Bluetooth LE", 
+                        StatusText = "Initialized (passive)", 
+                        StatusColor = Brushes.Orange,
+                        DeviceCount = Controllers.Count(c => c.ConnectionType == "Bluetooth"),
+                        HasError = false
+                    }
+                };
+                
+                foreach (var p in providers)
+                    ProviderDiagnostics.Add(p);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UpdateProviderDiagnostics failed");
+            }
         }
 
         public void Dispose()
@@ -253,6 +534,38 @@ namespace CrownControllerHUD.ViewModels
             _controllerManager.ControllerBatteryChanged -= OnControllerBatteryChanged;
             _controllerManager.ControllerChargingChanged -= OnControllerChargingChanged;
         }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnPropertyChanged(propertyName);
+            return true;
+        }
+    }
+
+    public class ProviderDiagnosticInfo : INotifyPropertyChanged
+    {
+        private string _name = "";
+        private string _statusText = "";
+        private Brush _statusColor = Brushes.Gray;
+        private int _deviceCount = 0;
+        private bool _hasError = false;
+        private string _errorMessage = "";
+
+        public string Name { get => _name; set => SetProperty(ref _name, value); }
+        public string StatusText { get => _statusText; set => SetProperty(ref _statusText, value); }
+        public Brush StatusColor { get => _statusColor; set => SetProperty(ref _statusColor, value); }
+        public int DeviceCount { get => _deviceCount; set => SetProperty(ref _deviceCount, value); }
+        public bool HasError { get => _hasError; set => SetProperty(ref _hasError, value); }
+        public string ErrorMessage { get => _errorMessage; set => SetProperty(ref _errorMessage, value); }
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

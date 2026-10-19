@@ -1,208 +1,188 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using CrownControllerHUD.Models;
 using Microsoft.Extensions.Logging;
+using Windows.Devices.Bluetooth;
+using Windows.Devices.Enumeration;
 
 namespace CrownControllerHUD.Services
 {
     /// <summary>
-    /// Bluetooth LE Controller Detector
-    /// Uses reflection to access Windows.Devices.Bluetooth APIs when CsWinRT projections are not available.
+    /// Bluetooth LE controller detector.
+    ///
+    /// Previously this class used <c>Assembly.Load("Windows.Devices.Bluetooth")</c>, which
+    /// cannot work with a Windows-targeted TFM (the WinRT types are projected into the app
+    /// assembly, so there is no loadable WinRT assembly to reflect over). It now uses the
+    /// directly referenced WinRT APIs.
+    ///
+    /// To avoid ever mistaking a Bluetooth headset/keyboard for a controller, a paired
+    /// endpoint is only reported when the Plug-and-play tree proves it is a HID-over-GATT
+    /// (0x1812) gamepad. It reports identity only; connection state comes from
+    /// <see cref="ILiveConnectionMonitor"/> via ControllerManager.
     /// </summary>
     public class BluetoothLEControllerDetector : BaseControllerDetector
     {
-        private readonly Dictionary<string, object> _bleDevices = new();
-        private object? _deviceWatcher;
-        private bool _bleAvailable = false;
-        private Type? _bluetoothLEDeviceType;
-        private Type? _bluetoothDeviceType;
-        private Type? _deviceInformationType;
-        private Type? _gattServiceUuidsType;
-        private Type? _gattCharacteristicUuidsType;
-        private MethodInfo? _fromIdAsyncMethod;
-        private MethodInfo? _getGattServiceMethod;
-        private MethodInfo? _getCharacteristicsAsyncMethod;
-        private PropertyInfo? _nameProperty;
-        private PropertyInfo? _deviceInformationProperty;
-        private PropertyInfo? _uuidsProperty;
-        private MethodInfo? _writeClientCharacteristicConfigurationDescriptorAsyncMethod;
-        private EventInfo? _valueChangedEvent;
+        private const string HidOverGattService = "00001812";
+        private const string PropDeviceAddress = "System.Devices.Aep.DeviceAddress";
+        private const string PropIsConnected = "System.Devices.Aep.IsConnected";
+        private const string PropIsPresent = "System.Devices.Aep.IsPresent";
+
+        private static readonly string[] WatchedProperties = { PropDeviceAddress, PropIsConnected, PropIsPresent };
 
         public override string Name => "Bluetooth LE";
 
-        public override bool IsAvailable => _bleAvailable;
+        public override bool IsAvailable { get; }
 
-        public BluetoothLEControllerDetector(ILogger<BluetoothLEControllerDetector> logger) : base(logger) 
+        public BluetoothLEControllerDetector(ILogger<BluetoothLEControllerDetector> logger) : base(logger)
         {
-            InitializeBLETypes();
-        }
-
-        private void InitializeBLETypes()
-        {
+            bool available;
             try
             {
-                // Try to load Windows.Devices.Bluetooth
-                var bluetoothAssembly = Assembly.Load("Windows.Devices.Bluetooth");
-                if (bluetoothAssembly != null)
-                {
-                    _bluetoothLEDeviceType = bluetoothAssembly.GetType("Windows.Devices.Bluetooth.BluetoothLEDevice");
-                    _bluetoothDeviceType = bluetoothAssembly.GetType("Windows.Devices.Bluetooth.BluetoothDevice");
-                }
-
-                // Try to load Windows.Devices.Bluetooth.GenericAttributeProfile
-                var gattAssembly = Assembly.Load("Windows.Devices.Bluetooth.GenericAttributeProfile");
-                if (gattAssembly != null)
-                {
-                    _gattServiceUuidsType = gattAssembly.GetType("Windows.Devices.Bluetooth.GenericAttributeProfile.GattServiceUuids");
-                    _gattCharacteristicUuidsType = gattAssembly.GetType("Windows.Devices.Bluetooth.GenericAttributeProfile.GattCharacteristicUuids");
-                }
-
-                // Try to load Windows.Devices.Enumeration
-                var devicesAssembly = Assembly.Load("Windows.Devices.Enumeration");
-                if (devicesAssembly != null)
-                {
-                    _deviceInformationType = devicesAssembly.GetType("Windows.Devices.Enumeration.DeviceInformation");
-                }
-
-                if (_bluetoothLEDeviceType != null)
-                {
-                    _fromIdAsyncMethod = _bluetoothLEDeviceType.GetMethod("FromIdAsync", BindingFlags.Public | BindingFlags.Static);
-                    _getGattServiceMethod = _bluetoothLEDeviceType.GetMethod("GetGattService");
-                    _nameProperty = _bluetoothLEDeviceType.GetProperty("Name");
-                    _deviceInformationProperty = _bluetoothLEDeviceType.GetProperty("DeviceInformation");
-                }
-
-                _bleAvailable = _bluetoothLEDeviceType != null && _fromIdAsyncMethod != null;
-                
-                if (_bleAvailable)
-                {
-                    _logger.LogInformation("Bluetooth LE types loaded successfully via reflection");
-                }
-                else
-                {
-                    _logger.LogWarning("Bluetooth LE types not available - Windows.Devices.Bluetooth not found. Install Windows SDK for full BLE support.");
-                }
+                _ = BluetoothLEDevice.GetDeviceSelector();
+                available = true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to load Bluetooth LE types via reflection. BLE detector will be disabled.");
-                _bleAvailable = false;
+                available = false;
+                _logger.LogWarning(ex, "Windows.Devices.Bluetooth is not available; Bluetooth LE detector disabled");
             }
+
+            IsAvailable = available;
+            DiagnosticLogger.Info($"BluetoothLEControllerDetector ctor: available={IsAvailable}");
         }
 
-        public override async Task InitializeAsync()
+        public override Task InitializeAsync()
         {
-            if (!_bleAvailable)
-            {
-                _logger.LogInformation("Bluetooth LE Controller Detector skipped (not available)");
-                return;
-            }
-
-            _logger.LogInformation("Initializing Bluetooth LE Controller Detector");
-            
-            // For now, we'll skip the device watcher since it requires full WinRT projections
-            // In a full implementation with Windows SDK, we'd set up a DeviceWatcher here
-            
-            _logger.LogInformation("Bluetooth LE Controller Detector initialized (passive mode)");
-            await Task.CompletedTask;
+            DiagnosticLogger.Info("[BluetoothLE] initialized (direct WinRT)");
+            return Task.CompletedTask;
         }
 
         public override async Task<IEnumerable<ControllerInfo>> DetectControllersAsync()
         {
-            var controllers = new List<ControllerInfo>();
-
-            if (!_bleAvailable) return controllers;
+            var results = new List<ControllerInfo>();
+            if (!IsAvailable) return results;
 
             try
             {
-                // In passive mode, we can't enumerate devices without DeviceWatcher
-                // This would require full WinRT projections
-                List<KeyValuePair<string, object>> devices;
+                // Which Bluetooth addresses are proven HID-over-GATT gamepads? The 0x1812 HID
+                // service node in the PnP tree is definitive and cannot match a keyboard,
+                // headset or phone.
+                var gamepadNodes = new Dictionary<string, (string InstanceId, Guid Container)>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var instanceId in PnpDeviceEnumerator.EnumeratePresentInstanceIds("BTHLEDEVICE"))
+                {
+                    if (instanceId.IndexOf(HidOverGattService, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    var mac = DeviceIdentity.FromPnpInstanceId(instanceId);
+                    if (mac == null) continue;
+
+                    PnpDeviceRecord record;
+                    try { record = PnpDeviceEnumerator.Describe(instanceId); }
+                    catch { continue; }
+
+                    gamepadNodes[mac] = (instanceId, record.ContainerId);
+                }
+
+                var endpoints = await DeviceInformation.FindAllAsync(
+                    BluetoothLEDevice.GetDeviceSelector(), WatchedProperties, DeviceInformationKind.AssociationEndpoint);
+
+                foreach (var endpoint in endpoints)
+                {
+                    string? mac = null;
+                    if (endpoint.Properties.TryGetValue(PropDeviceAddress, out var addressValue) && addressValue != null)
+                        mac = DeviceIdentity.NormalizeAddress(addressValue.ToString());
+                    mac ??= DeviceIdentity.FromAssociationEndpointId(endpoint.Id);
+
+                    if (mac == null || !gamepadNodes.TryGetValue(mac, out var node))
+                        continue;
+
+                    var controller = BuildController(endpoint, mac, node.InstanceId, node.Container);
+                    if (controller != null)
+                        results.Add(controller);
+                }
+
                 lock (_lock)
                 {
-                    devices = _bleDevices.ToList();
-                }
-                
-                foreach (var kvp in devices)
-                {
-                    var controller = await CreateControllerFromBLEDeviceAsync(kvp.Value, kvp.Key);
-                    if (controller != null)
+                    var currentIds = results.Select(c => c.DeviceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    foreach (var id in _knownControllers.Keys.Where(k => !currentIds.Contains(k)).ToList())
+                        OnControllerRemoved(id);
+
+                    foreach (var controller in results)
                     {
-                        controllers.Add(controller);
+                        if (_knownControllers.TryGetValue(controller.DeviceId, out var existing))
+                        {
+                            controller.ConnectedAt = existing.ConnectedAt;
+                            _knownControllers[controller.DeviceId] = controller;
+                            OnControllerUpdated(controller);
+                        }
+                        else
+                        {
+                            OnControllerDetected(controller);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error detecting controllers via Bluetooth LE");
+                DiagnosticLogger.Error("Bluetooth LE detection failed", ex);
             }
 
-            return controllers;
+            return results;
         }
 
-        private async Task<ControllerInfo?> CreateControllerFromBLEDeviceAsync(object bleDevice, string deviceId)
+        private ControllerInfo? BuildController(DeviceInformation endpoint, string mac, string instanceId, Guid container)
         {
-            try
-            {
-                var name = _nameProperty?.GetValue(bleDevice)?.ToString() ?? "";
-                var controller = CreateBaseControllerInfo(deviceId, name ?? "Bluetooth Controller");
-                
-                // Identify by name
-                controller.Type = IdentifyByName(name);
-                controller.ConnectionType = ConnectionType.Bluetooth;
-                controller.SupportsWireless = true;
-                
-                // Battery reading would require GATT service access
-                // For now, we skip battery reading in reflection mode
-                
-                return controller;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error creating controller from BLE device");
-                return null;
-            }
+            var (hasVidPid, vendorId, productId) = PnpDeviceEnumerator.ParseVidPid(instanceId);
+            var type = hasVidPid
+                ? KnownControllerIds.IdentifyController(vendorId, productId)
+                : ControllerType.GenericHID;
+
+            var usableContainer = PnpDeviceEnumerator.IsUsableContainer(container);
+            var deviceId = usableContainer
+                ? $"CTRL\\{container.ToString("D").ToUpperInvariant()}\\{vendorId:X4}_{productId:X4}"
+                : $"CTRL\\BT\\{mac}";
+
+            var controller = CreateBaseControllerInfo(deviceId, type.GetDisplayName());
+
+            controller.Provider = "BluetoothLE";
+            controller.VendorId = vendorId;
+            controller.ProductId = productId;
+            controller.Type = type;
+            controller.ContainerId = usableContainer ? container.ToString("D") : null;
+            controller.PnpInstanceId = instanceId;
+            controller.ConnectionType = ConnectionType.Bluetooth;
+            controller.BluetoothAddress = mac;
+            controller.SerialNumber = mac;
+            controller.SupportsWireless = true;
+            controller.SupportsVibration = type.IsXbox() || type.IsPlayStation() || type.IsNintendo();
+
+            if (!string.IsNullOrWhiteSpace(endpoint.Name))
+                controller.Name = endpoint.Name;
+
+            DiagnosticLogger.Info(
+                $"[BluetoothLE] accept addr={mac} vid=0x{vendorId:X4} pid=0x{productId:X4} type={type} " +
+                $"container={controller.ContainerId ?? "<none>"} name='{controller.Name}'");
+
+            return controller;
         }
 
-        private ControllerType IdentifyByName(string name)
+        public override Task StartMonitoringAsync()
         {
-            var lower = name.ToLower();
-            
-            if (lower.Contains("elite series 2")) return ControllerType.XboxEliteSeries2;
-            if (lower.Contains("elite")) return ControllerType.XboxOneElite;
-            if (lower.Contains("xbox series")) return ControllerType.XboxSeriesX;
-            if (lower.Contains("xbox")) return ControllerType.XboxOneS;
-            if (lower.Contains("dualsense")) return ControllerType.PlayStation5;
-            if (lower.Contains("dualshock") || lower.Contains("ps4")) return ControllerType.PlayStation4;
-            if (lower.Contains("pro controller")) return ControllerType.NintendoSwitchPro;
-            if (lower.Contains("joy-con") || lower.Contains("joycon"))
-            {
-                if (lower.Contains("left") || lower.Contains("(l)")) return ControllerType.NintendoSwitchJoyConLeft;
-                if (lower.Contains("right") || lower.Contains("(r)")) return ControllerType.NintendoSwitchJoyConRight;
-                return ControllerType.NintendoSwitchJoyConLeft;
-            }
-            if (lower.Contains("steam deck")) return ControllerType.SteamDeck;
-            if (lower.Contains("steam")) return ControllerType.SteamController;
-            
-            return ControllerType.GenericHID;
-        }
-
-        public override async Task StartMonitoringAsync()
-        {
-            if (!_bleAvailable || _isMonitoring) return;
+            if (!IsAvailable || _isMonitoring) return Task.CompletedTask;
             _isMonitoring = true;
-            _logger.LogInformation("Bluetooth LE controller monitoring started (passive mode)");
-            await Task.CompletedTask;
+            _logger.LogInformation("Bluetooth LE controller monitoring started");
+            return Task.CompletedTask;
         }
 
-        public override async Task StopMonitoringAsync()
+        public override Task StopMonitoringAsync()
         {
             _isMonitoring = false;
             _logger.LogInformation("Bluetooth LE controller monitoring stopped");
-            await Task.CompletedTask;
+            return Task.CompletedTask;
         }
     }
 }

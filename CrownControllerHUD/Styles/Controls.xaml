@@ -610,7 +610,7 @@
                                 Background="{StaticResource BackgroundSecondaryBrush}"
                                 BorderBrush="{StaticResource BorderSecondaryBrush}"
                                 BorderThickness="1,0,1,1"
-                                CornerRadius="0,0,{StaticResource CornerRadiusMedium},{StaticResource CornerRadiusMedium}"
+                                CornerRadius="0,0,8,8"
                                 Padding="12"
                                 Visibility="Collapsed">
                             <ContentPresenter/>

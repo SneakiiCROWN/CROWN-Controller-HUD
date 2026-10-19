@@ -53,13 +53,17 @@ namespace CrownControllerHUD.Services
             };
         }
 
-        public async Task LoadAsync()
+        public Task LoadAsync()
         {
             try
             {
                 if (File.Exists(_settingsPath))
                 {
-                    var json = await File.ReadAllTextAsync(_settingsPath);
+                    // Synchronous I/O on purpose: LoadAsync is awaited/blocked during
+                    // startup on the WPF UI thread. Async file I/O here captures the
+                    // dispatcher SynchronizationContext and deadlocks when a caller
+                    // blocks with .GetAwaiter().GetResult(), leaving the app with no window.
+                    var json = File.ReadAllText(_settingsPath);
                     var loaded = JsonSerializer.Deserialize<AppSettings>(json, _jsonOptions);
                     if (loaded != null)
                     {
@@ -77,20 +81,24 @@ namespace CrownControllerHUD.Services
                 _logger.LogError(ex, "Failed to load settings, using defaults");
                 _settings = new AppSettings();
             }
+
+            return Task.CompletedTask;
         }
 
-        public async Task SaveAsync()
+        public Task SaveAsync()
         {
             try
             {
                 var json = JsonSerializer.Serialize(_settings, _jsonOptions);
-                await File.WriteAllTextAsync(_settingsPath, json);
+                File.WriteAllText(_settingsPath, json);
                 _logger.LogInformation("Settings saved to {Path}", _settingsPath);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to save settings");
             }
+
+            return Task.CompletedTask;
         }
 
         public void ResetToDefaults()

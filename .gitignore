@@ -1,0 +1,39 @@
+# ===========================================================================
+# CROWN Controller HUD
+# ===========================================================================
+
+# --- Build output: never source control -------------------------------------
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+
+# --- Published test builds --------------------------------------------------
+# Each accepted/rejected test build lives on disk in its own versioned folder
+# (RELEASE_TEST_VISIBLE, RELEASE_TEST_V2_LIVE_STATE,
+#  RELEASE_TEST_V3_NOTIFICATION_TEST, ...). They are preserved locally but are
+# build output, so they are deliberately not committed.
+RELEASE_TEST_*/
+
+# --- Diagnostics, logs and crash artefacts ----------------------------------
+*.log
+*.dmp
+crash-*.txt
+diagnostic.log
+
+# --- One-off repair scratch files from earlier sessions ---------------------
+# Kept on disk for reference; not part of the application.
+FixXaml.cs
+FixXaml.exe
+fix.ps1
+error.txt
+output.txt
+
+# --- OS noise ---------------------------------------------------------------
+Thumbs.db
+desktop.ini

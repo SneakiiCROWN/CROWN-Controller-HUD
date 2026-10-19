@@ -10,7 +10,9 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Single-file compression is only supported for self-contained publishes; enabling it
+         unconditionally makes `dotnet publish` fail with NETSDK1176. -->
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
@@ -18,10 +20,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.22621.756" />
+    <!-- NOTE: Microsoft.Windows.SDK.Contracts is deliberately NOT referenced. It ships the
+         old-style "Windows" reference metadata that cannot be loaded at runtime and that
+         shadows the real WinRT projections provided by the Windows-targeted SDK. Direct
+         `using Windows.Devices.Bluetooth;` etc. now works without any reflection. -->
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.1.1" />
     <PackageReference Include="HidSharp" Version="2.1.0" />
-    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+    <!-- Microsoft.Toolkit.Uwp.Notifications was removed together with the UWP toast
+         renderer. Toasts require a registered AppUserModelID; this unpackaged app has
+         none, so they could never be displayed. Notifications now use the custom
+         CROWN WPF renderer (Services/NotificationRenderer.cs). -->
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
@@ -33,6 +41,12 @@
     <None Update="Assets\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Leftover one-off helper from a previous repair session; not part of the application. -->
+    <Compile Remove="FixXaml.cs" />
+    <None Include="FixXaml.cs" />
   </ItemGroup>
 
 </Project>

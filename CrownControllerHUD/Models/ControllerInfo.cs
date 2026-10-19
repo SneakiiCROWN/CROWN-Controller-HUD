@@ -35,6 +35,25 @@ namespace CrownControllerHUD.Models
         PlayStationWireless
     }
 
+    /// <summary>
+    /// Verified physical connection state of a controller.
+    ///
+    /// Deliberately distinct from simply being enumerated: a paired Bluetooth
+    /// controller keeps its device nodes installed and "present" while it is
+    /// powered off, so device presence can never prove that it is switched on.
+    /// </summary>
+    public enum ControllerConnectionState
+    {
+        /// <summary>No live signal has confirmed either state yet. Never shown as connected.</summary>
+        Unknown = 0,
+
+        /// <summary>A live signal (or the absence of a wired device) confirms it is not connected.</summary>
+        Disconnected = 1,
+
+        /// <summary>A live signal confirms the controller is powered on and connected.</summary>
+        Connected = 2
+    }
+
     public enum BatteryState
     {
         Unknown,
@@ -57,6 +76,35 @@ namespace CrownControllerHUD.Models
         public bool IsConnected { get; set; }
         public DateTime ConnectedAt { get; set; }
         public DateTime? LastSeen { get; set; }
+
+        // Verified live connection state. "IsConnected" is always kept in step with
+        // this value; it is true only for ControllerConnectionState.Connected.
+        public ControllerConnectionState ConnectionState { get; set; } = ControllerConnectionState.Unknown;
+
+        /// <summary>
+        /// Which live signal last decided the connection state, e.g.
+        /// "System.Devices.Aep.IsConnected=false" or "pnp-present" (wired device).
+        /// </summary>
+        public string? ConnectionStateSource { get; set; }
+
+        public DateTime? ConnectionStateChangedAt { get; set; }
+
+        // Which detection provider produced this record (WinRT / HID / PnP ...)
+        public string Provider { get; set; } = string.Empty;
+
+        // Reliable physical-device identity used to correlate the same controller
+        // reported by several providers / several HID top-level collections.
+        // ContainerId is the Windows device container (one per physical device).
+        public string? ContainerId { get; set; }
+        public string? PnpInstanceId { get; set; }
+        public int? XInputSlot { get; set; }
+
+        /// <summary>
+        /// Bluetooth MAC address (12 uppercase hex digits), when the device is a
+        /// Bluetooth controller. This is the key used to look up live connection
+        /// state from <c>ILiveConnectionMonitor</c>.
+        /// </summary>
+        public string? BluetoothAddress { get; set; }
 
         // Battery information
         public int? BatteryPercentage { get; set; } // Null if hardware doesn't report percentage
@@ -91,7 +139,7 @@ namespace CrownControllerHUD.Models
 
         public override string ToString()
         {
-            return $"{Name} ({Type}) - {ConnectionType} - {(IsConnected ? "Connected" : "Disconnected")} - Battery: {(BatteryPercentage.HasValue ? $"{BatteryPercentage}%" : "Unknown")}";
+            return $"{Name} ({Type}) - {ConnectionType} - {ConnectionState} - Battery: {(BatteryPercentage.HasValue ? $"{BatteryPercentage}%" : "Unknown")}";
         }
     }
 
@@ -100,10 +148,19 @@ namespace CrownControllerHUD.Models
         public ControllerInfo Controller { get; }
         public ControllerEventType EventType { get; }
 
-        public ControllerEventArgs(ControllerInfo controller, ControllerEventType eventType)
+        /// <summary>
+        /// True when this is the very first observation of the device rather than a
+        /// real power/plug transition. Initial observations must not raise user-facing
+        /// notifications (they are not transitions, and would otherwise fire on every
+        /// application start).
+        /// </summary>
+        public bool IsInitial { get; }
+
+        public ControllerEventArgs(ControllerInfo controller, ControllerEventType eventType, bool isInitial = false)
         {
             Controller = controller;
             EventType = eventType;
+            IsInitial = isInitial;
         }
     }
 
@@ -210,6 +267,13 @@ namespace CrownControllerHUD.Models
             { (0x045E, 0x0B0D), ControllerType.XboxEliteSeries2 },
             { (0x045E, 0x0B0E), ControllerType.XboxEliteSeries2 },
             { (0x045E, 0x0B0F), ControllerType.XboxEliteSeries2 },
+            // Xbox Elite Series 2 over Bluetooth LE reports PID 0x0B22
+            // (Bluetooth Classic reports 0x0B05, USB reports 0x0B00).
+            // Reference: xpadneo quirks -- "only the XBE2 controller identifies
+            // with PID 0x0B22 while the other models identify with PID 0x0B13".
+            { (0x045E, 0x0B20), ControllerType.XboxEliteSeries2 },
+            { (0x045E, 0x0B21), ControllerType.XboxEliteSeries2 },
+            { (0x045E, 0x0B22), ControllerType.XboxEliteSeries2 },
             // Xbox Series X|S
             { (0x045E, 0x0B12), ControllerType.XboxSeriesX },
             { (0x045E, 0x0B13), ControllerType.XboxSeriesX },
@@ -255,17 +319,49 @@ namespace CrownControllerHUD.Models
 
         public static ControllerType IdentifyController(ushort vid, ushort pid)
         {
-            var key = (vid, pid);
-            
-            if (XboxControllers.TryGetValue(key, out var xboxType)) return xboxType;
-            if (PlayStationControllers.TryGetValue(key, out var psType)) return psType;
-            if (NintendoControllers.TryGetValue(key, out var nintendoType)) return nintendoType;
-            if (SteamControllers.TryGetValue(key, out var steamType)) return steamType;
+            if (TryIdentifyExact(vid, pid, out var exact))
+                return exact;
 
             // Check for generic XInput (VID 0x045E is Microsoft)
             if (vid == 0x045E) return ControllerType.GenericXInput;
 
             return ControllerType.Unknown;
+        }
+
+        /// <summary>
+        /// Identifies a controller from the exact VID/PID tables only, without the
+        /// generic "any Microsoft VID is an Xbox controller" fallback. The fallback is
+        /// what made Windows' internal BUTTONCONVERTER collections (VID 045E / PID 0000)
+        /// look like Xbox controllers.
+        /// </summary>
+        public static bool TryIdentifyExact(ushort vid, ushort pid, out ControllerType type)
+        {
+            var key = (vid, pid);
+
+            if (XboxControllers.TryGetValue(key, out type)) return true;
+            if (PlayStationControllers.TryGetValue(key, out type)) return true;
+            if (NintendoControllers.TryGetValue(key, out type)) return true;
+            if (SteamControllers.TryGetValue(key, out type)) return true;
+
+            type = ControllerType.Unknown;
+            return false;
+        }
+
+        /// <summary>
+        /// Vendor IDs that make game controllers. Used only together with a
+        /// descriptor/name that actually says "gamepad/controller", never on its own.
+        /// </summary>
+        public static bool IsGamepadVendor(ushort vid)
+        {
+            return vid == 0x045E // Microsoft (Xbox)
+                || vid == 0x054C // Sony
+                || vid == 0x057E // Nintendo
+                || vid == 0x28DE // Valve (Steam)
+                || vid == 0x0F0D // Hori
+                || vid == 0x0E6F // PDP
+                || vid == 0x24C6 // PowerA
+                || vid == 0x2DC8 // 8BitDo
+                || vid == 0x1949; // Amazon (Luna)
         }
     }
 }
