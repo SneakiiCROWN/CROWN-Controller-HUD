@@ -1,0 +1,8 @@
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\CrownControllerHUD.csproj.AssemblyReference.cache
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\Styles\Colors.baml
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\App.g.cs
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\GeneratedInternalTypeHelper.g.cs
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\CrownControllerHUD_MarkupCompile.cache
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\CrownControllerHUD_MarkupCompile.lref
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\Styles\Controls.baml
+C:\Users\Snkii\Documents\CROWN_Controller_HUD\CrownControllerHUD\obj\Debug\net9.0-windows10.0.22621.0\win-x64\MainWindow.g.cs
