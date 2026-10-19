@@ -23,6 +23,7 @@ namespace CrownControllerHUD.ViewModels
         private readonly INotificationService _notificationService;
         private readonly ISettingsService _settingsService;
         private readonly ITrayService _trayService;
+        private readonly IBatteryWarningPolicy _batteryWarnings;
         private readonly ILogger<MainViewModel> _logger;
 
         private ObservableCollection<ControllerViewModel> _controllers = new();
@@ -95,12 +96,14 @@ namespace CrownControllerHUD.ViewModels
             INotificationService notificationService,
             ISettingsService settingsService,
             ITrayService trayService,
+            IBatteryWarningPolicy batteryWarnings,
             ILogger<MainViewModel> logger)
         {
             _controllerManager = controllerManager;
             _notificationService = notificationService;
             _settingsService = settingsService;
             _trayService = trayService;
+            _batteryWarnings = batteryWarnings;
             _logger = logger;
 
             RefreshCommand = new AsyncRelayCommand(async () => await RefreshAsync());
@@ -296,19 +299,31 @@ namespace CrownControllerHUD.ViewModels
             {
                 UpdateControllerInList(e.Controller);
                 _trayService.UpdateTrayIcon(GetPrimaryController());
-                
-                var settings = _settingsService.Settings.Notifications;
-                if (e.Controller.BatteryPercentage.HasValue)
+
+                // Battery levels are noisy by nature (capacity estimates drift). All of
+                // the deciding happens in BatteryWarningPolicy, which only lets a warning
+                // through when a NEW, more severe level is crossed, and re-arms only after
+                // a genuine recovery or confirmed charging.
+                var decision = _batteryWarnings.Evaluate(
+                    e.Controller.DeviceId,
+                    e.Controller.BatteryPercentage,
+                    e.Controller.BatteryState,
+                    e.Controller.IsCharging);
+
+                if (decision.ShouldNotify)
                 {
-                    if (e.Controller.BatteryPercentage <= settings.CriticalBatteryThreshold)
-                    {
-                        _notificationService.ShowBatteryCriticalAsync(e.Controller);
-                    }
-                    else if (e.Controller.BatteryPercentage <= settings.LowBatteryThreshold)
-                    {
-                        _notificationService.ShowBatteryLowAsync(e.Controller);
-                    }
+                    DiagnosticLogger.Info(
+                        $"[Battery] warning decision device='{e.Controller.Name}' kind={decision.Kind} " +
+                        $"percent={(e.Controller.BatteryPercentage?.ToString() ?? "n/a")} reason='{decision.Reason}'");
+
+                    _ = _notificationService.ShowBatteryWarningAsync(e.Controller, decision);
                 }
+                else
+                {
+                    DiagnosticLogger.Info(
+                        $"[Battery] warning suppressed device='{e.Controller.Name}' reason='{decision.Reason}'");
+                }
+
                 UpdateProviderDiagnostics();
             });
         }
@@ -319,11 +334,28 @@ namespace CrownControllerHUD.ViewModels
             {
                 UpdateControllerInList(e.Controller);
                 _trayService.UpdateTrayIcon(GetPrimaryController());
-                
+
+                // Charging is only ever reported from genuine device telemetry
+                // (Windows.Devices.Power BatteryReport.Status). A cable being plugged in
+                // is not evidence of charging, so nothing is inferred here.
+                if (!e.Controller.BatterySupportsCharging)
+                {
+                    DiagnosticLogger.Info(
+                        $"[Battery] charging state not reported for '{e.Controller.Name}': the telemetry source " +
+                        $"('{e.Controller.BatterySource ?? "none"}') cannot confirm charging");
+                    UpdateProviderDiagnostics();
+                    return;
+                }
+
                 if (e.Controller.IsCharging)
+                {
                     _notificationService.ShowChargingStartedAsync(e.Controller);
-                else if (e.Controller.BatteryPercentage >= 95)
+                }
+                else if (e.Controller.BatteryState == BatteryState.Full)
+                {
                     _notificationService.ShowChargingCompleteAsync(e.Controller);
+                }
+
                 UpdateProviderDiagnostics();
             });
         }
@@ -432,7 +464,17 @@ namespace CrownControllerHUD.ViewModels
                 sb.AppendLine($"Connected: {ConnectedCount}");
                 foreach (var c in Controllers)
                 {
-                    sb.AppendLine($"  {c.Name} ({c.ConnectionType}) - Battery: {c.BatteryText} - {(c.IsCharging ? "Charging" : "Discharging")} - Connected: {c.IsConnected}");
+                    sb.AppendLine($"  {c.Name} ({c.ConnectionType}) - Connected: {c.IsConnected}");
+                    sb.AppendLine($"    battery   : {c.BatteryText} ({c.BatteryStateText})");
+                    sb.AppendLine($"    charging  : {c.ChargingText}");
+                    sb.AppendLine($"    source    : {c.BatterySourceText}");
+                    sb.AppendLine($"    freshness : {c.BatteryFreshnessText}");
+                    sb.AppendLine($"    chargeRate: {c.BatteryChargeRateText}");
+                    if (!string.IsNullOrEmpty(c.BatteryErrorText))
+                        sb.AppendLine($"    note      : {c.BatteryErrorText}");
+                    if (c.Info.LastKnownBatteryPercentage.HasValue)
+                        sb.AppendLine($"    lastKnown : {c.LastKnownBatteryText}");
+                        sb.AppendLine($"    note      : {c.BatteryErrorText}");
                 }
                 sb.AppendLine();
                 sb.AppendLine("=== Provider Diagnostics ===");
@@ -598,6 +640,48 @@ namespace CrownControllerHUD.ViewModels
         public string FirmwareVersion => _info.FirmwareVersion ?? "Unknown";
         public string DeviceId => _info.DeviceId;
 
+        /// <summary>
+        /// Charging state as a sentence. "Not charging" is only stated when the device
+        /// telemetry can actually tell us; otherwise the state is honestly unknown, because
+        /// a cable being connected is not evidence of anything.
+        /// </summary>
+        public string ChargingText => _info.BatterySupportsCharging
+            ? (_info.IsCharging ? "Charging" : "Not charging")
+            : "Charging state not reported";
+
+        /// <summary>Where the battery value came from, for the diagnostics panel.</summary>
+        public string BatterySourceText => string.IsNullOrWhiteSpace(_info.BatterySource)
+            ? "no battery source"
+            : _info.BatterySource!;
+
+        public string BatteryFreshnessText => _info.BatteryLastUpdated.HasValue
+            ? $"{_info.BatteryLastUpdated.Value:HH:mm:ss}{(_info.BatteryIsStale ? " (stale)" : string.Empty)}"
+            : "never";
+
+        public string BatteryErrorText => _info.BatteryError ?? string.Empty;
+
+        public string BatteryChargeRateText => _info.BatteryChargeRateMw.HasValue
+            ? $"{_info.BatteryChargeRateMw.Value} mW"
+            : "not reported";
+
+        /// <summary>
+        /// When the current battery telemetry is unavailable (e.g., over USB), this
+        /// shows the last successfully read value with its timestamp. Never presented
+        /// as current - clearly labelled as "last known".
+        /// </summary>
+        public string LastKnownBatteryText
+        {
+            get
+            {
+                if (!_info.LastKnownBatteryPercentage.HasValue)
+                    return "none";
+                var when = _info.LastKnownBatteryReadAt.HasValue
+                    ? _info.LastKnownBatteryReadAt.Value.ToString("HH:mm:ss")
+                    : "unknown time";
+                return $"{_info.LastKnownBatteryPercentage}% at {when} (via {_info.LastKnownBatterySource ?? "unknown"})";
+            }
+        }
+
         public ControllerViewModel(ControllerInfo info)
         {
             _info = info;
@@ -613,6 +697,12 @@ namespace CrownControllerHUD.ViewModels
             OnPropertyChanged(nameof(IsCharging));
             OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(FirmwareVersion));
+            OnPropertyChanged(nameof(ChargingText));
+            OnPropertyChanged(nameof(BatterySourceText));
+            OnPropertyChanged(nameof(BatteryFreshnessText));
+            OnPropertyChanged(nameof(BatteryErrorText));
+            OnPropertyChanged(nameof(BatteryChargeRateText));
+            OnPropertyChanged(nameof(LastKnownBatteryText));
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

@@ -62,7 +62,7 @@
                 <!-- Status -->
                 <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
                     <Ellipse x:Name="StatusIndicator" Width="10" Height="10" Fill="#4CAF50" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="StatusText" Text="{Binding StatusText}" FontSize="13" Foreground="#CCCCCC" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StatusText" Text="{Binding StatusText}" FontSize="13" Foreground="#CCCCCC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="380"/>
                 </StackPanel>
 
                 <!-- Actions -->

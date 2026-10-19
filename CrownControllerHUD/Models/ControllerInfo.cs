@@ -106,7 +106,9 @@ namespace CrownControllerHUD.Models
         /// </summary>
         public string? BluetoothAddress { get; set; }
 
-        // Battery information
+        // Battery information.
+        // Every value here comes from genuine device telemetry; a missing reading stays
+        // null/Unknown and is NEVER rendered as 0%.
         public int? BatteryPercentage { get; set; } // Null if hardware doesn't report percentage
         public BatteryState BatteryState { get; set; } = BatteryState.Unknown;
         public bool IsCharging { get; set; }
@@ -116,6 +118,42 @@ namespace CrownControllerHUD.Models
         public int? BatteryVoltageMv { get; set; }
         public int? BatteryCurrentMa { get; set; }
         public DateTime? BatteryLastUpdated { get; set; }
+
+        /// <summary>
+        /// Which genuine source produced the current reading, e.g. "GATT 0x180F/0x2A19"
+        /// or "RawGameController.TryGetBatteryReport". Null until a reading exists.
+        /// </summary>
+        public string? BatterySource { get; set; }
+
+        /// <summary>Why the last battery read failed, or which field is unsupported.</summary>
+        public string? BatteryError { get; set; }
+
+        /// <summary>Remaining capacity in mWh, only when Windows reports a valid value.</summary>
+        public int? BatteryRemainingMwh { get; set; }
+
+        /// <summary>Full charge capacity in mWh, only when Windows reports a valid value.</summary>
+        public int? BatteryFullChargeMwh { get; set; }
+
+        /// <summary>Charge rate in mW. Positive = charging, negative = discharging, zero/unknown = not reported.</summary>
+        public int? BatteryChargeRateMw { get; set; }
+
+        /// <summary>True when the source genuinely reports an exact percentage.</summary>
+        public bool BatterySupportsPercentage { get; set; }
+
+        /// <summary>True when the source genuinely reports charging state.</summary>
+        public bool BatterySupportsCharging { get; set; }
+
+        /// <summary>True when the cached reading has exceeded its freshness window.</summary>
+        public bool BatteryIsStale { get; set; }
+
+        /// <summary>
+        /// When the current battery telemetry is unavailable (e.g., over USB), this
+        /// holds the last successfully read percentage and its timestamp. Clearly
+        /// labelled as stale - never presented as current.
+        /// </summary>
+        public int? LastKnownBatteryPercentage { get; set; }
+        public DateTime? LastKnownBatteryReadAt { get; set; }
+        public string? LastKnownBatterySource { get; set; }
 
         // Hardware identification
         public ushort VendorId { get; set; }

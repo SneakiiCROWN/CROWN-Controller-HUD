@@ -108,6 +108,36 @@ namespace CrownControllerHUD.Services
         public static string FromBluetoothAddress(ulong address)
             => address.ToString("X12");
 
+        /// <summary>
+        /// Parses a canonical 12-hex-digit address (as produced by this class) back into
+        /// the ulong form that WinRT expects. Returns false for anything else, so an
+        /// unusable address can never become a bogus Bluetooth query.
+        /// </summary>
+        public static bool TryParseAddress(string? macLike, out ulong address)
+        {
+            address = 0;
+
+            var normalized = NormalizeAddress(macLike);
+            if (normalized == null || normalized.Length != 12)
+                return false;
+
+            return ulong.TryParse(normalized, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out address);
+        }
+
+        /// <summary>Formats 12 hex digits as "3C:FA:06:19:15:B2" for display.</summary>
+        public static string ToDisplayAddress(string? normalizedAddress)
+        {
+            if (normalizedAddress == null || normalizedAddress.Length != 12)
+                return normalizedAddress ?? string.Empty;
+
+            var parts = new string[6];
+            for (int i = 0; i < 6; i++)
+                parts[i] = normalizedAddress.Substring(i * 2, 2);
+
+            return string.Join(":", parts);
+        }
+
         private static string StripNonAddressPrefix(string text)
         {
             // Keep only the trailing "mac-ish" tail so NormalizeAddress has a chance.

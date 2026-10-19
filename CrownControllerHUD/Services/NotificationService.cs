@@ -12,6 +12,13 @@ namespace CrownControllerHUD.Services
         Task ShowControllerDisconnectedAsync(ControllerInfo controller);
         Task ShowBatteryLowAsync(ControllerInfo controller);
         Task ShowBatteryCriticalAsync(ControllerInfo controller);
+
+        /// <summary>
+        /// Renders a battery warning that <see cref="IBatteryWarningPolicy"/> already
+        /// decided on (threshold crossing, categorical level, or recovery). The decision
+        /// carries the reason, which is what gets logged.
+        /// </summary>
+        Task ShowBatteryWarningAsync(ControllerInfo controller, BatteryWarningDecision decision);
         Task ShowChargingStartedAsync(ControllerInfo controller);
         Task ShowChargingCompleteAsync(ControllerInfo controller);
         Task ShowCustomNotificationAsync(string title, string message, string? iconPath = null);
@@ -185,8 +192,120 @@ namespace CrownControllerHUD.Services
             return Task.CompletedTask;
         }
 
-        public Task ShowCustomNotificationAsync(string title, string message, string? iconPath = null)
+        public Task ShowBatteryWarningAsync(ControllerInfo controller, BatteryWarningDecision decision)
         {
+            var settings = Settings;
+            var label = decision.Kind switch
+            {
+                BatteryWarningKind.CategoricalEmpty => "battery-critical",
+                BatteryWarningKind.CategoricalLow => "battery-low",
+                BatteryWarningKind.Recovered => "battery-recovered",
+                _ => decision.IsCritical ? "battery-critical" : "battery-low"
+            };
+
+            if (!settings.EnableNotifications)
+            {
+                _logger.LogInformation(
+                    "[Notify] Notification suppressed: {Label} because notifications are disabled in settings", label);
+                return Task.CompletedTask;
+            }
+
+            if (!settings.NotifyOnBatteryWarnings)
+            {
+                _logger.LogInformation(
+                    "[Notify] Notification suppressed: {Label} because battery warnings are disabled", label);
+                return Task.CompletedTask;
+            }
+
+            // Legacy per-severity toggles are still honoured, so an existing install that
+            // deliberately turned low or critical battery notifications off keeps them off.
+            if (decision.IsCritical && !settings.NotifyOnCriticalBattery)
+            {
+                _logger.LogInformation(
+                    "[Notify] Notification suppressed: {Label} because the critical battery toggle is off", label);
+                return Task.CompletedTask;
+            }
+
+            if (!decision.IsCritical && !settings.NotifyOnLowBattery)
+            {
+                _logger.LogInformation(
+                    "[Notify] Notification suppressed: {Label} because the low battery toggle is off", label);
+                return Task.CompletedTask;
+            }
+
+            var deviceName = controller.Type.GetDisplayName();
+
+            if (decision.Kind == BatteryWarningKind.Recovered)
+            {
+                if (!settings.NotifyOnBatteryRecovered)
+                {
+                    _logger.LogInformation(
+                        "[Notify] Notification suppressed: battery-recovered because recovery notifications are off");
+                    return Task.CompletedTask;
+                }
+
+                _logger.LogInformation(
+                    "[Notify] Battery warning allowed: {Label} for '{Name}' ({Reason})", label, controller.Name, decision.Reason);
+
+                Show(new CrownNotificationRequest
+                {
+                    Title = "Battery Recovered",
+                    Message = decision.Percentage.HasValue
+                        ? $"{deviceName} back at {decision.Percentage}%"
+                        : deviceName,
+                    Detail = "Battery warnings re-armed",
+                    Kind = CrownNotificationKind.Charging,
+                    TimestampText = BatteryStamp(controller),
+                    LogLabel = label
+                });
+
+                return Task.CompletedTask;
+            }
+
+            // The message states exactly what is known: an exact percentage when the
+            // device genuinely reports one, otherwise the categorical level with no
+            // invented number attached.
+            string message;
+            string detail;
+
+            if (decision.Kind == BatteryWarningKind.Threshold)
+            {
+                message = $"{deviceName} at {decision.Percentage}%";
+                detail = decision.IsCritical
+                    ? "Connect a charger now"
+                    : decision.ThresholdPercent is int t
+                        ? $"Crossed the {t}% battery level"
+                        : "Connect a charger when convenient";
+            }
+            else if (decision.Kind == BatteryWarningKind.CategoricalEmpty)
+            {
+                message = $"{deviceName} battery is empty";
+                detail = "Connect a charger now";
+            }
+            else
+            {
+                message = $"{deviceName} battery is low";
+                detail = "Connect a charger when convenient";
+            }
+
+            _logger.LogInformation(
+                "[Notify] Battery warning allowed: {Label} for '{Name}' ({Reason})",
+                label, controller.Name, decision.Reason);
+
+            Show(new CrownNotificationRequest
+            {
+                Title = decision.IsCritical ? "Battery Critical" : "Battery Low",
+                Message = message,
+                Detail = detail,
+                Kind = decision.IsCritical ? CrownNotificationKind.BatteryCritical : CrownNotificationKind.BatteryLow,
+                TimestampText = BatteryStamp(controller),
+                LogLabel = label
+            });
+
+            return Task.CompletedTask;
+        }
+
+        public Task ShowCustomNotificationAsync(string title, string message, string? iconPath = null)        {
             if (!Settings.EnableNotifications)
             {
                 _logger.LogInformation("[Notify] Notification suppressed: custom ('{Title}') because notifications are disabled", title);
@@ -239,6 +358,21 @@ namespace CrownControllerHUD.Services
                 LogLabel = "test-disconnected"
             });
 
+            await Task.Delay(260).ConfigureAwait(false);
+
+            // The battery card is included so the new styling can be seen without waiting
+            // for a real controller to drop to a warning level. It is clearly marked TEST
+            // and the percentage shown here is illustrative only - genuine battery cards
+            // always print the value the device actually reported.
+            Show(new CrownNotificationRequest
+            {
+                Title = "Battery Low",
+                Message = "Xbox Elite Series 2 at 15%",
+                Detail = "Connect a charger when convenient - TEST",
+                Kind = CrownNotificationKind.BatteryLow,
+                LogLabel = "test-battery-low"
+            });
+
             await Task.Delay(120).ConfigureAwait(false);
         }
 
@@ -281,6 +415,11 @@ namespace CrownControllerHUD.Services
 
         private static string Describe(int? percent) =>
             percent.HasValue ? $"{percent.Value}%" : "an unknown charge level";
+
+        /// <summary>Battery cards are stamped with when the reading was taken, not when the
+        /// controller connected, so a stale reading is visible at a glance.</summary>
+        private static string BatteryStamp(ControllerInfo controller) =>
+            (controller.BatteryLastUpdated ?? DateTime.Now).ToString("HH:mm:ss");
 
         private static string Stamp(ControllerInfo controller)
         {

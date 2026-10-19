@@ -13,6 +13,11 @@ namespace CrownControllerHUD.Services
         private readonly List<HidDevice> _monitoredDevices = new();
         private readonly Dictionary<string, HidStream> _deviceStreams = new();
         private readonly HashSet<string> _loggedCandidates = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Last raw HID battery report seen per device, so only changes are logged.</summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _lastHidBatteryReport =
+            new(StringComparer.OrdinalIgnoreCase);
+
         private readonly System.Threading.Timer? _pollTimer;
         private bool _disposed = false;
 
@@ -247,13 +252,13 @@ namespace CrownControllerHUD.Services
                     }
                 }
 
-                // Try to read battery info via HID
+                // Read the raw HID battery report for diagnostics only. This never sets a
+                // battery value: IBatteryTelemetryService is the only authority on battery
+                // telemetry, and it only reports what a documented source genuinely states.
                 ReadBatteryInfo(device, controller);
 
                 // Capabilities
                 controller.SupportsVibration = HasVibrationSupport(device);
-                controller.SupportsBatteryReporting = controller.BatteryPercentage.HasValue;
-                controller.SupportsChargingStatus = controller.IsCharging || controller.BatteryState == BatteryState.Charging;
                 controller.SupportsWireless = controller.ConnectionType != ConnectionType.USB;
 
                 return controller;
@@ -311,68 +316,62 @@ namespace CrownControllerHUD.Services
 
         private void ReadXboxBatteryInfo(HidDevice device, ControllerInfo controller)
         {
-            // Xbox One/Series controllers report battery via HID feature report 0x09 (or 0x04 for older)
-            // Elite Series 2 uses report 0x09 with specific format
-            // This is a simplified implementation - real implementation needs proper report parsing
-            
+            // The byte layout of the Xbox HID feature report 0x09 is NOT documented by
+            // Microsoft. An earlier version of this file assumed byte 1 held a 0-100
+            // percentage and byte 2 a charging flag - nothing ever verified that, and
+            // showing a guessed number is exactly the fabricated telemetry this app must
+            // never display. The report is therefore read and LOGGED ONLY, so real
+            // hardware evidence can be collected; genuine battery values come from
+            // IBatteryTelemetryService (Windows.Gaming.Input / Bluetooth GATT / XInput).
+            _ = controller;
+
             try
             {
                 var stream = device.Open();
-                if (stream != null)
+                if (stream == null)
+                    return;
+
+                try
                 {
-                    // Try to read feature report 0x09 (Xbox battery report)
+                    if (!stream.CanRead)
+                        return;
+
                     var buffer = new byte[64];
-                    buffer[0] = 0x09; // Report ID
-                    
-                    if (stream.CanRead)
-                    {
-                        stream.GetFeature(buffer, 0, buffer.Length);
-                        ParseXboxBatteryReport(buffer, controller);
-                    }
-                    
+                    buffer[0] = 0x09;
+
+                    stream.GetFeature(buffer, 0, buffer.Length);
+
+                    LogHidBatteryReport(device, buffer);
+                }
+                finally
+                {
                     stream.Close();
                 }
             }
             catch
             {
-                // Ignore - not all devices support feature reports
+                // Not all devices support feature reports; this is expected and harmless.
             }
         }
 
-        private void ParseXboxBatteryReport(byte[] report, ControllerInfo controller)
+        /// <summary>
+        /// Logs the raw report only when it changes, so the diagnostic log shows how the
+        /// value moves without being flooded by the 2 second poll.
+        /// </summary>
+        private void LogHidBatteryReport(HidDevice device, byte[] buffer)
         {
-            // Xbox battery report format (Report ID 0x09):
-            // Byte 0: Report ID (0x09)
-            // Byte 1: Battery level (0-100) or 0xFF for unknown
-            // Byte 2: Charging state (0=discharging, 1=charging, 2=full, 3=wired)
-            // Byte 3-5: Additional info (battery type, etc.)
-            
-            if (report.Length >= 3 && report[0] == 0x09)
-            {
-                var level = report[1];
-                var chargingState = report[2];
-                
-                if (level != 0xFF && level <= 100)
-                {
-                    controller.BatteryPercentage = level;
-                    controller.BatteryLastUpdated = DateTime.Now;
-                    
-                    controller.BatteryState = level switch
-                    {
-                        >= 95 => BatteryState.Full,
-                        >= 50 => BatteryState.High,
-                        >= 15 => BatteryState.Medium,
-                        >= 5 => BatteryState.Low,
-                        _ => BatteryState.Critical
-                    };
-                    
-                    controller.IsCharging = chargingState == 1;
-                    controller.SupportsChargingStatus = true;
-                    
-                    if (chargingState == 2) controller.BatteryState = BatteryState.Full;
-                    if (chargingState == 3) controller.BatteryState = BatteryState.Full; // Wired
-                }
-            }
+            var length = Math.Min(buffer.Length, 16);
+            var hex = BitConverter.ToString(buffer, 0, length);
+
+            var previous = _lastHidBatteryReport.GetOrAdd(device.DevicePath, string.Empty);
+            if (string.Equals(previous, hex, StringComparison.Ordinal))
+                return;
+
+            _lastHidBatteryReport[device.DevicePath] = hex;
+
+            DiagnosticLogger.Info(
+                $"[Battery] HID feature report 0x09 (diagnostic only, never used as a value) " +
+                $"device='{device.DevicePath}' bytes={hex}");
         }
 
         private void ReadPlayStationBatteryInfo(HidDevice device, ControllerInfo controller)

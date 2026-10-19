@@ -68,6 +68,9 @@ namespace CrownControllerHUD.Services
                     if (loaded != null)
                     {
                         _settings = MergeWithDefaults(loaded);
+                        // Never let a hand-edited or partially written file put nonsense
+                        // ranges into the running app.
+                        _settings.Normalize();
                         _logger.LogInformation("Settings loaded from {Path}", _settingsPath);
                     }
                 }

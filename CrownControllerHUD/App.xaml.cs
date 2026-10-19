@@ -201,8 +201,58 @@ namespace CrownControllerHUD
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 }
 
-                DiagnosticLogger.Info("Application startup completed successfully");
-            }
+                // Diagnostic aid: query genuine battery telemetry for every controller that
+                // is currently switched on, write a report next to the log and exit. This is
+                // how real hardware battery reporting gets verified without the dashboard.
+                if (argsList.Contains("--battery-report") || argsList.Contains("-battery-report"))
+                {
+                    Dispatcher.BeginInvoke(new Action(async () =>
+                    {
+                        try
+                        {
+                            DiagnosticLogger.Info("Diagnostic: --battery-report requested");
+
+                            var manager = _host.Services.GetRequiredService<IControllerManager>();
+                            var battery = _host.Services.GetRequiredService<IBatteryTelemetryService>();
+
+                            await manager.ForceRefreshAsync().ConfigureAwait(true);
+
+                            // Give the live signal watcher a moment to report a controller
+                            // that is genuinely switched on.
+                            await Task.Delay(1500).ConfigureAwait(true);
+                            await manager.ForceRefreshAsync().ConfigureAwait(true);
+
+                            var controllers = manager.Controllers
+                                .Where(c => c.ConnectionState == ControllerConnectionState.Connected)
+                                .ToList();
+
+                            var report = await BatteryDiagnosticsReporter
+                                .BuildAsync(controllers, battery, force: true, CancellationToken.None)
+                                .ConfigureAwait(true);
+
+                            DiagnosticLogger.Info("[Battery] report:\n" + report);
+
+                            var reportPath = Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                "CrownControllerHUD",
+                                "battery-report.txt");
+
+                            Directory.CreateDirectory(Path.GetDirectoryName(reportPath)!);
+                            File.WriteAllText(reportPath, report);
+                            Console.Out.WriteLine(report);
+                        }
+                        catch (Exception ex)
+                        {
+                            DiagnosticLogger.Error("Diagnostic battery report failed", ex);
+                        }
+                        finally
+                        {
+                            Shutdown(0);
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Background);
+                }
+
+                DiagnosticLogger.Info("Application startup completed successfully");            }
             catch (Exception ex)
             {
                 DiagnosticLogger.Error("FATAL: Application startup failed", ex);
@@ -238,10 +288,30 @@ namespace CrownControllerHUD
                     // Live connection state is the single authority on whether a Bluetooth
                     // controller is actually switched on (device presence is not).
                     services.AddSingleton<ILiveConnectionMonitor, WinRTLiveConnectionMonitor>();
+
+                    // USB live connection monitor: tracks actual USB controller presence
+                    // via PnP, Windows.Gaming.Input and XInput. Never forces connections.
+                    services.AddSingleton<IUsbLiveConnectionMonitor, UsbLiveConnectionMonitor>();
+
                     services.AddSingleton<IControllerDetector, WinRTControllerDetector>();
                     services.AddSingleton<IControllerDetector, HidControllerDetector>();
                     services.AddSingleton<IControllerDetector, BluetoothLEControllerDetector>();
                     services.AddSingleton<IControllerDetector, PnpControllerDetector>();
+
+                    // Genuine battery telemetry. Windows.Gaming.Input TryGetBatteryReport
+                    // first, then Bluetooth GATT 0x180F/0x2A19 on an already-connected
+                    // device, then XInput's categorical levels. Never invents a value and
+                    // never dials a powered-off controller.
+                    services.AddSingleton<IBatteryTelemetryService, BatteryTelemetryService>();
+
+                    // Threshold/debounce policy for battery warnings. Reads the live
+                    // settings object so a settings change takes effect immediately.
+                    services.AddSingleton<IBatteryWarningPolicy>(sp =>
+                    {
+                        var settings = sp.GetRequiredService<IOptionsMonitor<AppSettings>>();
+                        return new BatteryWarningPolicy(() => settings.CurrentValue.Notifications);
+                    });
+
                     services.AddSingleton<IControllerManager, ControllerManager>();
 
                     // Services

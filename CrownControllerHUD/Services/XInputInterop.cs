@@ -54,11 +54,94 @@ namespace CrownControllerHUD.Services
             public XINPUT_VIBRATION Vibration;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct XINPUT_BATTERY_INFORMATION
+        {
+            public byte BatteryType;
+            public byte BatteryLevel;
+        }
+
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
         private static extern uint XInputGetState(uint dwUserIndex, out XINPUT_STATE pState);
 
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetCapabilities")]
         private static extern uint XInputGetCapabilities(uint dwUserIndex, uint dwFlags, out XINPUT_CAPABILITIES pCapabilities);
+
+        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetBatteryInformation")]
+        private static extern uint XInputGetBatteryInformation(uint dwUserIndex, byte devType, out XINPUT_BATTERY_INFORMATION pBatteryInformation);
+
+        // XINPUT_BATTERY_TYPE_*
+        public const byte BATTERY_TYPE_DISCONNECTED = 0x00;
+        public const byte BATTERY_TYPE_WIRED = 0x01;
+        public const byte BATTERY_TYPE_ALKALINE = 0x02;
+        public const byte BATTERY_TYPE_NIMH = 0x03;
+        public const byte BATTERY_TYPE_UNKNOWN = 0xFF;
+
+        // XINPUT_BATTERY_LEVEL_*
+        public const byte BATTERY_LEVEL_EMPTY = 0x00;
+        public const byte BATTERY_LEVEL_LOW = 0x01;
+        public const byte BATTERY_LEVEL_MEDIUM = 0x02;
+        public const byte BATTERY_LEVEL_FULL = 0x03;
+
+        private const byte BATTERY_DEVTYPE_GAMEPAD = 0x00;
+
+        /// <summary>
+        /// Result of XInputGetBatteryInformation.
+        ///
+        /// XInput only ever reports a CATEGORICAL level, never a percentage, and
+        /// BATTERY_TYPE_DISCONNECTED with level EMPTY is what it returns for a device it
+        /// cannot measure at all (this is what an Xbox Elite Series 2 over Bluetooth
+        /// returns). <see cref="Usable"/> is false in that case so the caller can never
+        /// mistake "no data" for "empty battery".
+        /// </summary>
+        public sealed class BatteryInfo
+        {
+            public int Slot { get; init; }
+            public byte Type { get; init; }
+            public byte Level { get; init; }
+            public string Source { get; init; } = string.Empty;
+
+            /// <summary>True only when XInput genuinely measured a battery.</summary>
+            public bool Usable => Type == BATTERY_TYPE_ALKALINE || Type == BATTERY_TYPE_NIMH;
+
+            /// <summary>True when the device is powered over the cable (no battery reading).</summary>
+            public bool Wired => Type == BATTERY_TYPE_WIRED || Type == BATTERY_TYPE_DISCONNECTED;
+
+            public override string ToString() =>
+                $"slot {Slot} type=0x{Type:X2} level=0x{Level:X2} usable={Usable}";
+        }
+
+        /// <summary>
+        /// Reads XInput battery information for a slot. Never throws. Callers must check
+        /// <see cref="BatteryInfo.Usable"/> before treating the result as telemetry.
+        /// </summary>
+        public static BatteryInfo? GetBatteryInformation(int slot)
+        {
+            if (slot < 0 || slot > 3)
+                return null;
+
+            try
+            {
+                var info = default(XINPUT_BATTERY_INFORMATION);
+                var result = XInputGetBatteryInformation((uint)slot, BATTERY_DEVTYPE_GAMEPAD, out info);
+
+                if (result != ERROR_SUCCESS)
+                    return null;
+
+                return new BatteryInfo
+                {
+                    Slot = slot,
+                    Type = info.BatteryType,
+                    Level = info.BatteryLevel,
+                    Source = "XInputGetBatteryInformation"
+                };
+            }
+            catch
+            {
+                // xinput1_4.dll unavailable - no XInput battery telemetry.
+                return null;
+            }
+        }
 
         public sealed class SlotInfo
         {

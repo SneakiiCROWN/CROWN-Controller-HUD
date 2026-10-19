@@ -61,14 +61,29 @@ namespace CrownControllerHUD.Services
         private readonly ILogger<ControllerManager> _logger;
         private readonly IOptionsMonitor<AppSettings> _settings;
         private readonly ILiveConnectionMonitor _liveMonitor;
+        private readonly IUsbLiveConnectionMonitor _usbLiveMonitor;
+        private readonly IBatteryTelemetryService? _battery;
         private readonly List<IControllerDetector> _detectors = new();
         private readonly Dictionary<string, ControllerInfo> _controllers = new();
+
+        /// <summary>
+        /// Battery reads in flight, per device. Battery telemetry is gathered on a
+        /// background task so a slow Bluetooth read can never delay a connection
+        /// transition, and only one read per device is ever outstanding.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _batteryInFlight = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Last state we actually reported to the UI, per physical device.</summary>
         private readonly Dictionary<string, ControllerConnectionState> _reportedState = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>State currently waiting out the debounce window, per physical device.</summary>
         private readonly Dictionary<string, (ControllerConnectionState State, DateTime Since)> _pendingState = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Tracks the last known transport per physical device (by ContainerId) to
+        /// detect transport handoffs (Bluetooth <-> USB) and avoid disconnect/connect spam.
+        /// </summary>
+        private readonly Dictionary<string, ConnectionType> _lastTransportByContainer = new(StringComparer.OrdinalIgnoreCase);
 
         private readonly object _lock = new();
         private readonly System.Threading.Timer? _refreshTimer;
@@ -106,11 +121,15 @@ namespace CrownControllerHUD.Services
             ILogger<ControllerManager> logger,
             IOptionsMonitor<AppSettings> settings,
             ILiveConnectionMonitor liveMonitor,
-            IEnumerable<IControllerDetector> detectors)
+            IUsbLiveConnectionMonitor usbLiveMonitor,
+            IEnumerable<IControllerDetector> detectors,
+            IBatteryTelemetryService? battery = null)
         {
             _logger = logger;
             _settings = settings;
             _liveMonitor = liveMonitor;
+            _usbLiveMonitor = usbLiveMonitor;
+            _battery = battery;
 
             DiagnosticLogger.Info("ControllerManager ctor: begin");
             _detectors.AddRange(detectors.Where(d => d.IsAvailable));
@@ -126,6 +145,7 @@ namespace CrownControllerHUD.Services
             // Verified live transitions arrive from the monitor; refresh immediately instead
             // of waiting for the safety-net poll so a real power event is reported at once.
             _liveMonitor.StateChanged += OnLiveConnectionStateChanged;
+            _usbLiveMonitor.StateChanged += OnUsbLiveConnectionStateChanged;
 
             // The manager polls all detectors and is the single source of truth for
             // connect/disconnect/battery events. Detector-raised events are intentionally
@@ -176,6 +196,12 @@ namespace CrownControllerHUD.Services
             try { await _liveMonitor.StartAsync(); }
             catch (Exception ex) { _logger.LogError(ex, "Failed to start live connection monitor"); }
 
+            try { await _usbLiveMonitor.InitializeAsync(); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to initialize USB live connection monitor"); }
+
+            try { await _usbLiveMonitor.StartAsync(); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to start USB live connection monitor"); }
+
             foreach (var detector in _detectors)
             {
                 try
@@ -217,6 +243,9 @@ namespace CrownControllerHUD.Services
 
             try { await _liveMonitor.StopAsync(); }
             catch (Exception ex) { _logger.LogError(ex, "Failed to stop live connection monitor"); }
+
+            try { await _usbLiveMonitor.StopAsync(); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to stop USB live connection monitor"); }
         }
 
         /// <summary>
@@ -266,8 +295,11 @@ namespace CrownControllerHUD.Services
         {
             var connectedEvents = new List<ControllerInfo>();
             var disconnectedEvents = new List<ControllerInfo>();
-            var batteryEvents = new List<ControllerInfo>();
-            var chargingEvents = new List<ControllerInfo>();
+
+            // Controllers whose battery should be (re)measured after this refresh, together
+            // with how many other connected controllers share their VID/PID (which decides
+            // whether an identity-less source can be attributed safely).
+            var batteryRefreshTargets = new List<(ControllerInfo Controller, int DuplicateVidPidCount)>();
 
             // Devices whose *first ever* observation is "Connected". These are not
             // transitions - the app simply found a controller that was already switched
@@ -299,6 +331,12 @@ namespace CrownControllerHUD.Services
                 // Merge controllers from different detectors into one entry per physical device.
                 var merged = MergeControllers(allControllers);
 
+                // Detect transport handoffs (Bluetooth <-> USB) for the same physical device.
+                // When a controller's transport changes but its ContainerId matches a previously
+                // seen device, we treat it as a handoff rather than a disconnect+connect.
+                var handoffDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                DetectTransportHandoffs(merged, handoffDeviceIds);
+
                 // Resolve the *verified* live connection state for every discovered device.
                 // Detection only proves a device exists; this is what proves it is switched on.
                 foreach (var controller in merged)
@@ -308,16 +346,14 @@ namespace CrownControllerHUD.Services
                 {
                     var currentIds = merged.Select(c => c.DeviceId).ToHashSet();
 
-                    // Battery / charging transitions (compare against the previous snapshot).
+                    // Battery telemetry is owned by IBatteryTelemetryService, never by the
+                    // detectors. Carry the last genuine reading forward so a refresh that
+                    // produced no new measurement can never look like "battery became
+                    // unknown" - which is exactly how a fabricated 0% would sneak in.
                     foreach (var controller in merged)
                     {
                         if (_controllers.TryGetValue(controller.DeviceId, out var previous))
-                        {
-                            if (previous.BatteryPercentage != controller.BatteryPercentage)
-                                batteryEvents.Add(controller);
-                            if (previous.IsCharging != controller.IsCharging)
-                                chargingEvents.Add(controller);
-                        }
+                            CarryBatteryForward(previous, controller);
                     }
 
                     // Devices that vanished from enumeration entirely (e.g. a USB pad was
@@ -331,6 +367,39 @@ namespace CrownControllerHUD.Services
                         if (previousState == ControllerConnectionState.Connected &&
                             _controllers.TryGetValue(id, out var gone))
                         {
+                            // Suppress disconnect event if this is a transport handoff
+                            // (the same physical device appeared on a different transport).
+                            if (handoffDeviceIds.Contains(id) ||
+                                (gone.ContainerId != null && _lastTransportByContainer.ContainsKey(gone.ContainerId!.ToUpperInvariant())))
+                            {
+                                // Check if the same container appears in the merged list with a different transport
+                                bool isHandoff = false;
+                                foreach (var m in merged)
+                                {
+                                    if (m.ContainerId != null && m.ContainerId!.Equals(gone.ContainerId, StringComparison.OrdinalIgnoreCase) &&
+                                        m.ConnectionType != gone.ConnectionType)
+                                    {
+                                        isHandoff = true;
+                                        break;
+                                    }
+                                }
+
+                                if (isHandoff)
+                                {
+                                    DiagnosticLogger.Info(
+                                        $"[Transport] Suppressing disconnect for device-no-longer-present during handoff: {gone.Name}");
+                                    // Don't add to disconnectedEvents
+                                    // But still update the state
+                                    gone.ConnectionState = ControllerConnectionState.Connected;
+                                    gone.IsConnected = true;
+                                    gone.ConnectionStateSource = "transport-handoff";
+                                    gone.ConnectionStateChangedAt = now;
+                                    gone.LastSeen = DateTime.Now;
+                                    _reportedState[id] = ControllerConnectionState.Connected;
+                                    continue;
+                                }
+                            }
+
                             gone.ConnectionState = ControllerConnectionState.Disconnected;
                             gone.IsConnected = false;
                             gone.ConnectionStateSource = "device-no-longer-present";
@@ -390,7 +459,8 @@ namespace CrownControllerHUD.Services
                         if (state == ControllerConnectionState.Connected)
                         {
                             controller.ConnectedAt = now;
-                            connectedEvents.Add(controller);
+                            if (!handoffDeviceIds.Contains(controller.DeviceId))
+                                connectedEvents.Add(controller);
 
                             if (!haveReported)
                                 initialConnectIds.Add(controller.DeviceId);
@@ -401,7 +471,8 @@ namespace CrownControllerHUD.Services
                             // *first* observation of a device (nothing was ever reported
                             // connected) there is nothing to notify about: a controller that
                             // was found switched off has not "disconnected".
-                            disconnectedEvents.Add(controller);
+                            if (!handoffDeviceIds.Contains(controller.DeviceId))
+                                disconnectedEvents.Add(controller);
                         }
 
                         LogTransition(
@@ -423,6 +494,20 @@ namespace CrownControllerHUD.Services
                         }
 
                         _controllers[controller.DeviceId] = controller;
+
+                        // Only a controller we have verified as switched on is worth a
+                        // battery measurement - querying anything else would force a
+                        // Bluetooth connection attempt.
+                        if (controller.ConnectionState == ControllerConnectionState.Connected)
+                        {
+                            int duplicates = merged.Count(c =>
+                                !string.Equals(c.DeviceId, controller.DeviceId, StringComparison.OrdinalIgnoreCase)
+                                && c.VendorId == controller.VendorId
+                                && c.ProductId == controller.ProductId
+                                && c.ConnectionState == ControllerConnectionState.Connected);
+
+                            batteryRefreshTargets.Add((controller, duplicates));
+                        }
                     }
                 }
 
@@ -441,16 +526,200 @@ namespace CrownControllerHUD.Services
                 OnControllerDisconnected(controller, false);
             foreach (var controller in connectedEvents)
                 OnControllerConnected(controller, initialConnectIds.Contains(controller.DeviceId));
-            foreach (var controller in batteryEvents)
-                OnControllerBatteryChanged(controller);
-            foreach (var controller in chargingEvents)
-                OnControllerChargingChanged(controller);
 
-            if (disconnectedEvents.Count > 0 || connectedEvents.Count > 0 || batteryEvents.Count > 0 || chargingEvents.Count > 0)
+            if (disconnectedEvents.Count > 0 || connectedEvents.Count > 0)
                 OnControllersChanged();
+
+            // Battery telemetry runs entirely on background tasks; it is deliberately
+            // started after the connection events so a slow Bluetooth read can never
+            // delay a notification.
+            foreach (var target in batteryRefreshTargets)
+                QueueBatteryRefresh(target.Controller, target.DuplicateVidPidCount);
 
             if (scheduleDebouncedRefresh)
                 ScheduleDebouncedRefresh();
+        }
+
+        // ------------------------------------------------------------------- battery
+
+        /// <summary>
+        /// Copies the last genuine battery reading from a previous snapshot onto a freshly
+        /// detected record. Detectors never supply battery data, so without this every
+        /// refresh would present a known controller as "battery unknown".
+        /// </summary>
+        private static void CarryBatteryForward(ControllerInfo previous, ControllerInfo fresh)
+        {
+            if (fresh.BatteryLastUpdated.HasValue)
+                return;
+
+            fresh.BatteryPercentage = previous.BatteryPercentage;
+            fresh.BatteryState = previous.BatteryState;
+            fresh.IsCharging = previous.IsCharging;
+            fresh.HasBattery = previous.HasBattery;
+            fresh.BatteryChemistry = previous.BatteryChemistry;
+            fresh.BatteryCapacityWh = previous.BatteryCapacityWh;
+            fresh.BatteryVoltageMv = previous.BatteryVoltageMv;
+            fresh.BatteryCurrentMa = previous.BatteryCurrentMa;
+            fresh.BatteryLastUpdated = previous.BatteryLastUpdated;
+            fresh.BatterySource = previous.BatterySource;
+            fresh.BatteryError = previous.BatteryError;
+            fresh.BatteryRemainingMwh = previous.BatteryRemainingMwh;
+            fresh.BatteryFullChargeMwh = previous.BatteryFullChargeMwh;
+            fresh.BatteryChargeRateMw = previous.BatteryChargeRateMw;
+            fresh.BatterySupportsPercentage = previous.BatterySupportsPercentage;
+            fresh.BatterySupportsCharging = previous.BatterySupportsCharging;
+            fresh.SupportsBatteryReporting = previous.SupportsBatteryReporting;
+            fresh.SupportsChargingStatus = previous.SupportsChargingStatus;
+            fresh.BatteryIsStale = previous.BatteryIsStale;
+            fresh.LastKnownBatteryPercentage = previous.LastKnownBatteryPercentage;
+            fresh.LastKnownBatteryReadAt = previous.LastKnownBatteryReadAt;
+            fresh.LastKnownBatterySource = previous.LastKnownBatterySource;
+        }
+
+        /// <summary>
+        /// Starts a battery measurement for one connected controller on a background task.
+        /// The telemetry service decides whether a fresh read is actually due, so calling
+        /// this on every 2 second poll does not poll the hardware.
+        /// </summary>
+        private void QueueBatteryRefresh(ControllerInfo controller, int duplicateVidPidCount)
+        {
+            if (_disposed || _battery == null)
+                return;
+
+            if (!_settings.CurrentValue.Battery.EnableBatteryTelemetry)
+                return;
+
+            var id = controller.DeviceId;
+            if (string.IsNullOrWhiteSpace(id))
+                return;
+
+            // One read per device at a time: a controller must never be queried twice.
+            if (!_batteryInFlight.TryAdd(id, 0))
+                return;
+
+            var name = controller.Name;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var reading = await _battery
+                        .ReadAsync(controller, false, duplicateVidPidCount, CancellationToken.None)
+                        .ConfigureAwait(false);
+
+                    if (reading != null)
+                        ApplyBatteryReading(id, name, reading);
+                    else
+                        MarkBatteryUnavailable(id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Background battery refresh failed for {Device}", name);
+                    DiagnosticLogger.Error($"[Battery] background refresh failed device='{name}'", ex);
+                }
+                finally
+                {
+                    _batteryInFlight.TryRemove(id, out _);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Applies a genuine reading and raises the battery events. Runs on a background
+        /// thread; handlers marshal to the UI themselves.
+        /// </summary>
+        private void ApplyBatteryReading(string deviceId, string deviceName, BatteryReading reading)
+        {
+            ControllerInfo updated;
+            bool valuesChanged;
+            bool chargingChanged;
+
+            lock (_lock)
+            {
+                if (!_controllers.TryGetValue(deviceId, out var controller))
+                    return;
+
+                // A reading that arrives after the controller switched off must never
+                // resurrect a value onto a disconnected device.
+                if (controller.ConnectionState != ControllerConnectionState.Connected)
+                {
+                    _logger.LogInformation(
+                        "[Battery] Discarding a reading for {Device} because it is no longer connected", deviceName);
+                    return;
+                }
+
+                valuesChanged =
+                    controller.BatteryPercentage != reading.Percentage
+                    || controller.BatteryState != reading.State
+                    || controller.BatterySupportsPercentage != reading.SupportsPercentage
+                    || !string.Equals(controller.BatterySource, reading.SourceDescription, StringComparison.Ordinal);
+
+                chargingChanged = controller.IsCharging != reading.Charging;
+
+                controller.BatteryPercentage = reading.Percentage;
+                controller.BatteryState = reading.State;
+                controller.IsCharging = reading.Charging;
+                controller.HasBattery = reading.Percentage.HasValue || reading.State != BatteryState.Unknown;
+                controller.BatterySource = reading.SourceDescription;
+                controller.BatteryError = reading.Error;
+                controller.BatteryRemainingMwh = reading.RemainingMwh;
+                controller.BatteryFullChargeMwh = reading.FullChargeMwh;
+                controller.BatteryChargeRateMw = reading.ChargeRateMw;
+                controller.BatterySupportsPercentage = reading.SupportsPercentage;
+                controller.BatterySupportsCharging = reading.SupportsCharging;
+                controller.BatteryIsStale = false;
+                controller.BatteryLastUpdated = reading.RetrievedAtUtc.ToLocalTime();
+                controller.SupportsBatteryReporting = reading.SupportsPercentage;
+                controller.SupportsChargingStatus = reading.SupportsCharging;
+
+                // Preserve the last known good reading for display when telemetry
+                // becomes unavailable (e.g., after a transport switch).
+                if (reading.Percentage.HasValue)
+                {
+                    controller.LastKnownBatteryPercentage = reading.Percentage;
+                    controller.LastKnownBatteryReadAt = reading.RetrievedAtUtc.ToLocalTime();
+                    controller.LastKnownBatterySource = reading.SourceDescription;
+                }
+
+                updated = controller;
+            }
+
+            DiagnosticLogger.Info(
+                $"[Battery] {deviceName}: {(reading.Percentage.HasValue ? reading.Percentage.Value + "%" : "no percentage")} " +
+                $"state={reading.State} charging={reading.Charging} source='{reading.SourceDescription}'" +
+                (string.IsNullOrEmpty(reading.Error) ? string.Empty : $" note='{reading.Error}'"));
+
+            if (chargingChanged)
+                OnControllerChargingChanged(updated);
+
+            if (valuesChanged)
+            {
+                OnControllerBatteryChanged(updated);
+                OnControllersChanged();
+            }
+        }
+
+        /// <summary>
+        /// Records why no reading was possible and ages the existing value. Logged by the
+        /// telemetry service, not here, so a 2 second poll cannot spam the log.
+        /// </summary>
+        private void MarkBatteryUnavailable(string deviceId)
+        {
+            lock (_lock)
+            {
+                if (!_controllers.TryGetValue(deviceId, out var controller))
+                    return;
+
+                controller.BatteryError = _battery?.LastError ?? "no battery telemetry available";
+
+                // Mark the current reading as stale but preserve the last known good
+                // reading for display purposes (clearly labelled as stale).
+                if (controller.BatteryLastUpdated.HasValue)
+                {
+                    var age = DateTime.Now - controller.BatteryLastUpdated.Value;
+                    controller.BatteryIsStale = age > TimeSpan.FromSeconds(_settings.CurrentValue.Battery.StaleAfterSeconds);
+                }
+            }
         }
 
         /// <summary>
@@ -507,9 +776,61 @@ namespace CrownControllerHUD.Services
                 return;
             }
 
+            if (controller.ConnectionType == ConnectionType.USB)
+            {
+                var state = _usbLiveMonitor.GetState(controller.DeviceId);
+                var source = _usbLiveMonitor.GetStateSource(controller.DeviceId);
+
+                controller.ConnectionState = state;
+                controller.IsConnected = state == ControllerConnectionState.Connected;
+                controller.ConnectionStateSource = source ?? "usb-live-monitor";
+                return;
+            }
+
+            // Other transports (Xbox Wireless Adapter, etc.): presence = connected.
             controller.ConnectionState = ControllerConnectionState.Connected;
             controller.IsConnected = true;
             controller.ConnectionStateSource = "pnp-present";
+        }
+
+        /// <summary>
+        /// Detects when the same physical controller (by ContainerId) switches transport
+        /// (e.g., Bluetooth -> USB or USB -> Bluetooth). When detected, we update the
+        /// transport type but avoid generating spurious disconnect/connect events.
+        /// </summary>
+        private void DetectTransportHandoffs(List<ControllerInfo> merged, HashSet<string> handoffDeviceIds)
+        {
+            foreach (var controller in merged)
+            {
+                if (string.IsNullOrWhiteSpace(controller.ContainerId))
+                    continue;
+
+                var containerKey = controller.ContainerId!.ToUpperInvariant();
+
+                if (_lastTransportByContainer.TryGetValue(containerKey, out var lastTransport))
+                {
+                    if (lastTransport != controller.ConnectionType &&
+                        (lastTransport == ConnectionType.Bluetooth || lastTransport == ConnectionType.USB) &&
+                        (controller.ConnectionType == ConnectionType.Bluetooth || controller.ConnectionType == ConnectionType.USB))
+                    {
+                        // Transport handoff detected: same physical device, different transport.
+                        // Log it but don't treat as disconnect/connect - the connection state
+                        // resolution will handle the new transport's live signal.
+                        handoffDeviceIds.Add(controller.DeviceId);
+
+                        DiagnosticLogger.Info(
+                            $"[Transport] Handoff detected container={containerKey} device='{controller.Name}' " +
+                            $"transport {lastTransport} -> {controller.ConnectionType}");
+
+                        // If the old transport was Connected and new transport is also Connected,
+                        // this is a seamless handoff. If old was Connected and new is Disconnected,
+                        // it's a genuine transition (e.g., unplugged USB, Bluetooth not yet connected).
+                        // The debounce logic in the main loop will handle this correctly.
+                    }
+                }
+
+                _lastTransportByContainer[containerKey] = controller.ConnectionType;
+            }
         }
 
         private string? BuildRefreshError(List<ControllerInfo> merged, string? detectorError)
@@ -744,6 +1065,12 @@ namespace CrownControllerHUD.Services
             _ = Task.Run(() => RefreshAsync());
         }
 
+        private void OnUsbLiveConnectionStateChanged(object? sender, UsbConnectionChangedEventArgs e)
+        {
+            // Verified USB connect/disconnect: refresh immediately.
+            _ = Task.Run(() => RefreshAsync());
+        }
+
         private void OnDetectorControllerDetected(object? sender, ControllerEventArgs e)
         {
             // Intentionally ignored: ControllerManager.RefreshAsync is the single source of
@@ -766,6 +1093,7 @@ namespace CrownControllerHUD.Services
             _disposed = true;
 
             try { _liveMonitor.StateChanged -= OnLiveConnectionStateChanged; } catch { }
+            try { _usbLiveMonitor.StateChanged -= OnUsbLiveConnectionStateChanged; } catch { }
             _refreshTimer?.Dispose();
         }
 
