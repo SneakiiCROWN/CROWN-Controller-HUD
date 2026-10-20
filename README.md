@@ -1,33 +1,42 @@
-# CROWN Controller HUD 🎮
+# CROWN Controller HUD
 
-A Windows companion app for gaming controllers, made by SneakiiCROWN. It's designed to show connected controllers, battery information and connection alerts without taking over your game.
+A Windows app for keeping an eye on your game controllers and their battery status.
 
-## Want to try it?
+**Current version: Windows test build.** It's a real downloadable program, but controller compatibility still needs testing on more PCs.
 
-**Windows 10/11 only.** Check [Releases](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases) for a portable download.
+## Download and open it
 
-**Portable Windows test build available:** download [CROWN-Controller-HUD-Windows-Test.zip](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases/download/hud-test-2/CROWN-Controller-HUD-Windows-Test.zip) from GitHub Releases. Extract it, then run the EXE. It's a hardware-testing preview, not a fully verified stable version. **Code → Download ZIP** contains source code, not the program.
+1. [Download the Windows ZIP](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases/download/hud-test-2/CROWN-Controller-HUD-Windows-Test.zip).
+2. Right-click the ZIP and choose **Extract All**.
+3. Open the extracted folder and double-click **CrownControllerHUD.exe**.
+4. Connect your controller and see what the app detects.
 
-When a build is posted: download the Windows ZIP, **extract the whole folder**, then open `CrownControllerHUD.exe`.
+That's it. No coding tools or .NET SDK needed for this download. It's for **64-bit Windows 10/11**. Only run downloads from a source you trust.
 
-## What does it do?
+**Don't use GitHub's green "Code → Download ZIP" button** if you just want the app. That's the source code.
 
-- Controller dashboard and tray companion.
-- Connection and battery-related features.
-- Real hardware compatibility and battery reporting still need testing.
+## What's working, and what isn't proven yet?
 
-If your controller isn't detected or its battery looks wrong, tell me its model and whether you're using USB, Bluetooth or a wireless adapter.
+- **Built successfully:** the Windows app and its required runtime files are packaged together.
+- **Included in the app:** a controller dashboard, tray companion, connection monitoring and battery-related features.
+- **Still needs real testing:** detection across controller brands and connection types, accurate battery readings, notifications and how it behaves during games.
 
-## Building it yourself (optional)
+I haven't confirmed a specific outstanding bug for every controller model. If something doesn't work, please report it rather than assuming it should.
 
-Install the **.NET 10 SDK** on Windows, then run:
+## What's next?
+
+Better compatibility checks, more reliable battery reporting, and further settings and interface polish. See [development notes](DEVELOPMENT_STATUS.md) for the detailed list.
+
+## Found a problem?
+
+[Open an issue](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/issues) and tell me which controller you're using, how it's connected (USB, Bluetooth or adapter), what you expected and what happened.
+
+## For developers only
+
+This is a .NET 10 Windows/WPF project. With the .NET 10 SDK installed, build it using:
 
 ```powershell
 dotnet build CrownControllerHUD/CrownControllerHUD.csproj -c Release
 ```
 
-The executable appears inside that project's `bin/Release` folders. Building isn't the same as packaging a friend-ready release.
-
-See [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) for technical details and features that still need checking.
-
-**Status:** In development. Actual controller detection and notifications need more real-device testing.
+The **Releases** page is for users; the repository files are for people working on the code.
