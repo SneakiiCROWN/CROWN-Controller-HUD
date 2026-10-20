@@ -1,0 +1,40 @@
+name: Build CROWN Controller HUD test download
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/build-hud-test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  windows-test-build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore and publish portable Windows app
+        shell: pwsh
+        run: |
+          dotnet restore "CrownControllerHUD/CrownControllerHUD.csproj" -r win-x64
+          dotnet publish "CrownControllerHUD/CrownControllerHUD.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o "$env:RUNNER_TEMP/publish"
+          if ($LASTEXITCODE -ne 0) { throw "Windows publish failed" }
+          if (-not (Test-Path "$env:RUNNER_TEMP/publish/CrownControllerHUD.exe")) { throw "Executable missing" }
+          "TEST BUILD: Controller detection, battery reporting, notifications and hardware compatibility require hands-on testing." | Set-Content -Path "$env:RUNNER_TEMP/publish/READ-ME-FIRST.txt"
+          Compress-Archive -Path "$env:RUNNER_TEMP/publish/*" -DestinationPath "$env:RUNNER_TEMP/CROWN-Controller-HUD-Windows-Test.zip" -Force
+      - name: Upload build as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CROWN-Controller-HUD-Windows-Test
+          path: ${{ runner.temp }}/CROWN-Controller-HUD-Windows-Test.zip
+      - name: Publish clearly marked private-repository test release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "hud-test-${{ github.run_number }}" "$env:RUNNER_TEMP/CROWN-Controller-HUD-Windows-Test.zip" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title "Controller HUD Windows test build ${{ github.run_number }}" --notes "Portable Windows x64 test build. Extract ZIP and run CrownControllerHUD.exe. Controller detection, battery accuracy and notifications still require real-hardware testing. This is not a stable release." --prerelease
