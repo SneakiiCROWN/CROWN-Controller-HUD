@@ -27,6 +27,12 @@ I haven't confirmed a specific outstanding bug for every controller model. If so
 
 Better compatibility checks, more reliable battery reporting, and further settings and interface polish. See [development notes](DEVELOPMENT_STATUS.md) for the detailed list.
 
+## Known issues and updates
+
+No specific controller model is confirmed broken in this release, but real-device checks are still outstanding. Battery percentages, Bluetooth detection and pop-up alerts may behave differently on different hardware. The next goal is to verify those and fix any issues we find.
+
+**Updating:** check [Releases](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases), download the newer Windows ZIP and extract it into its own folder. Keep the previous version until you've checked the new one. There's no automatic updater yet.
+
 ## Found a problem?
 
 [Open an issue](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/issues) and tell me which controller you're using, how it's connected (USB, Bluetooth or adapter), what you expected and what happened.
