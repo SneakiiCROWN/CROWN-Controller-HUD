@@ -1,0 +1,5 @@
+Copyright (c) 2026 SneakiiCROWN. All rights reserved in original project material.
+
+You may download and use the official prerelease binaries for personal use, and share links to the official release pages. No general licence to reuse or redistribute original source, artwork, branding or other project material is granted by public availability. GitHub platform rights still apply. Third-party components retain their own licences and notices; this notice does not restrict rights those licences grant.
+
+These development builds are provided AS IS, without warranty.

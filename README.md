@@ -1,48 +1,41 @@
-# CROWN Controller HUD
+# CROWN-Controller-HUD
 
-A Windows app for keeping an eye on your game controllers and their battery status.
+A Windows controller dashboard and tray companion for connection state, battery information and alerts.
 
-**Current version: Windows test build.** It's a real downloadable program, but controller compatibility still needs testing on more PCs.
+**Current prerelease: V4 battery and USB/Bluetooth handoff test.**
 
-## Download and open it
+## Download and play
 
-1. [Download the Windows ZIP](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases/download/hud-test-2/CROWN-Controller-HUD-Windows-Test.zip).
-2. Right-click the ZIP and choose **Extract All**.
-3. Open the extracted folder and double-click **CrownControllerHUD.exe**.
-4. Connect your controller and see what the app detects.
+1. [Download the Windows ZIP](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases/download/hud-v4-public-test-20261020/CROWN-Controller-HUD-Windows-V4-Test.zip).
+2. Right-click it, choose **Extract All**, then open the extracted folder.
+3. Double-click **CrownControllerHUD.exe** and keep its supporting files together.
 
-That's it. No coding tools or .NET SDK needed for this download. It's for **64-bit Windows 10/11**. Only run downloads from a source you trust.
+No coding tools are needed. GitHub’s **Code → Download ZIP** contains source, not the playable program.
 
-**Don't use GitHub's green "Code → Download ZIP" button** if you just want the app. That's the source code.
+## What is in this version?
 
-## What's working, and what isn't proven yet?
+The current local V4 source includes live connection monitoring, battery backoff and warning policies, USB/Bluetooth handoff handling, settings and the CROWN notification renderer.
 
-- **Built successfully:** the Windows app and its required runtime files are packaged together.
-- **Included in the app:** a controller dashboard, tray companion, connection monitoring and battery-related features.
-- **Still needs real testing:** detection across controller brands and connection types, accurate battery readings, notifications and how it behaves during games.
+## Checked, and still unfinished
 
-I haven't confirmed a specific outstanding bug for every controller model. If something doesn't work, please report it rather than assuming it should.
+61 automated tests passed. A fresh self-contained Windows x64 build launched and responded; its existing settings hash stayed unchanged.
 
-## What's next?
+Physical controller detection, battery accuracy, connection handoff and notifications during real games still need hardware testing. A successful launch does not establish controller compatibility.
 
-Better compatibility checks, more reliable battery reporting, and further settings and interface polish. See [development notes](DEVELOPMENT_STATUS.md) for the detailed list.
+## Updating without losing progress
 
-## Known issues and updates
+Extract each Windows version into a new folder and keep the old folder for rollback. Keep your existing settings and save folders; do not reset or delete app data to update.
 
-No specific controller model is confirmed broken in this release, but real-device checks are still outstanding. Battery percentages, Bluetooth detection and pop-up alerts may behave differently on different hardware. The next goal is to verify those and fix any issues we find.
+## What is next?
 
-**Updating:** check [Releases](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases), download the newer Windows ZIP and extract it into its own folder. Keep the previous version until you've checked the new one. There's no automatic updater yet.
+Next work follows the existing development notes: verify more controller/connection combinations, then address battery and notification issues found on hardware.
 
-## Found a problem?
+## Requirements and credits
 
-[Open an issue](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/issues) and tell me which controller you're using, how it's connected (USB, Bluetooth or adapter), what you expected and what happened.
+64-bit Windows 10/11. The .NET runtime is included; no SDK or separate .NET install is needed. Kenney assets are CC0, Oxanium uses SIL OFL, Lucide uses its bundled licence, and software dependency notices are in ThirdPartyNotices.
 
-## For developers only
+Original project material is source-available with the permissions in LICENSE.txt; public availability is not a blanket open-source or asset-reuse licence. Third-party licence rights remain intact.
 
-This is a .NET 10 Windows/WPF project. With the .NET 10 SDK installed, build it using:
+## Found a bug?
 
-```powershell
-dotnet build CrownControllerHUD/CrownControllerHUD.csproj -c Release
-```
-
-The **Releases** page is for users; the repository files are for people working on the code.
+[Open an issue](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/issues) with the release version, Windows/Android version, relevant controller or phone model, steps to reproduce and what happened. Share screenshots or a short recording if useful; leave personal saves, account details and private logs out of public reports.
