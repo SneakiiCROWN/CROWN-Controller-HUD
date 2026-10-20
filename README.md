@@ -6,7 +6,7 @@ A Windows companion app for gaming controllers, made by SneakiiCROWN. It's desig
 
 **Windows 10/11 only.** Check [Releases](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases) for a portable download.
 
-**There isn't a ready-to-download release attached yet.** The files here are the *source code*, not an installer. If you're helping test, ask me for a tested build instead of expecting the green **Code → Download ZIP** to run.
+**Portable Windows test build available:** download [CROWN-Controller-HUD-Windows-Test.zip](https://github.com/SneakiiCROWN/CROWN-Controller-HUD/releases/download/hud-test-2/CROWN-Controller-HUD-Windows-Test.zip) from GitHub Releases. Extract it, then run the EXE. It's a hardware-testing preview, not a fully verified stable version. **Code → Download ZIP** contains source code, not the program.
 
 When a build is posted: download the Windows ZIP, **extract the whole folder**, then open `CrownControllerHUD.exe`.
 
