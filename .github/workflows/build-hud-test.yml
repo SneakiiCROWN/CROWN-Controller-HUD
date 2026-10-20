@@ -11,13 +11,16 @@ permissions:
 
 jobs:
   windows-test-build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Check installed Windows SDK versions
+        shell: pwsh
+        run: Get-ChildItem 'C:/Program Files (x86)/Windows Kits/10/Platforms/UAP' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
       - name: Restore and publish portable Windows app
         shell: pwsh
         run: |
