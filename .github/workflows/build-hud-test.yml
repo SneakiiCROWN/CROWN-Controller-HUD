@@ -1,0 +1,58 @@
+name: Build Controller HUD tested portable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Unique prerelease tag
+        required: true
+        type: string
+      publish:
+        description: Publish tested artifacts as a GitHub prerelease
+        default: false
+        type: boolean
+permissions:
+  contents: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test battery, backoff, warning and settings policies
+        run: dotnet test CrownControllerHUD.Tests/CrownControllerHUD.Tests.csproj -c Release --nologo
+      - name: Publish self-contained Windows app
+        run: |
+          dotnet publish CrownControllerHUD/CrownControllerHUD.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o "$env:RUNNER_TEMP/package"
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
+          Copy-Item ThirdPartyNotices "$env:RUNNER_TEMP/package/ThirdPartyNotices" -Recurse
+          Copy-Item LICENSE.txt,README.md "$env:RUNNER_TEMP/package"
+          Get-ChildItem "$env:RUNNER_TEMP/package" -Filter *.pdb | Remove-Item
+          if (-not (Test-Path "$env:RUNNER_TEMP/package/CrownControllerHUD.exe")) { throw 'Missing EXE' }
+      - name: Package and hash
+        run: |
+          Compress-Archive -Path "$env:RUNNER_TEMP/package/*" -DestinationPath "$env:RUNNER_TEMP/CROWN-Controller-HUD-Windows-Test.zip"
+          (Get-FileHash "$env:RUNNER_TEMP/CROWN-Controller-HUD-Windows-Test.zip" -Algorithm SHA256).Hash.ToLower() + '  CROWN-Controller-HUD-Windows-Test.zip' | Set-Content "$env:RUNNER_TEMP/SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-windows-package
+          path: |
+            ${{ runner.temp }}/CROWN-Controller-HUD-Windows-Test.zip
+            ${{ runner.temp }}/SHA256SUMS.txt
+          retention-days: 14
+      - name: Publish requested prerelease
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release create "$env:RELEASE_TAG" "$env:RUNNER_TEMP/CROWN-Controller-HUD-Windows-Test.zip" "$env:RUNNER_TEMP/SHA256SUMS.txt" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --prerelease --title "$env:RELEASE_TAG" --notes "Automated build and offline checks passed. Physical-controller and live-game verification remain separate; read README.md for scope and prerequisites."
