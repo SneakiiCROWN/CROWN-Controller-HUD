@@ -160,12 +160,26 @@ namespace CrownControllerHUD.Services
 
             // Refresh
             var refreshItem = new MenuItem { Header = "Refresh Controllers" };
-            refreshItem.Click += (s, e) => ShowWindowRequested?.Invoke(this, EventArgs.Empty);
+            refreshItem.Click += (s, e) =>
+            {
+                try { _ = _controllerManager.ForceRefreshAsync(); }
+                catch (Exception ex) { DiagnosticLogger.Error("Refresh failed", ex); }
+            };
             menu.Items.Add(refreshItem);
 
             // Settings
             var settingsItem = new MenuItem { Header = "Settings" };
-            settingsItem.Click += (s, e) => ShowWindowRequested?.Invoke(this, EventArgs.Empty);
+            settingsItem.Click += (s, e) =>
+            {
+                try
+                {
+                    var logger = Microsoft.Extensions.Logging.LoggerFactory.Create(b => { }).CreateLogger<SettingsWindow>();
+                    var settingsWindow = new SettingsWindow(_settingsService, _startupService, _notificationService, _controllerManager, logger);
+                    settingsWindow.Show();
+                    settingsWindow.Activate();
+                }
+                catch (Exception ex) { DiagnosticLogger.Error("Settings failed to open", ex); }
+            };
             menu.Items.Add(settingsItem);
 
             menu.Items.Add(new Separator());

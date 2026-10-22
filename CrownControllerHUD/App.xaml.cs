@@ -311,8 +311,8 @@ namespace CrownControllerHUD
                     // settings object so a settings change takes effect immediately.
                     services.AddSingleton<IBatteryWarningPolicy>(sp =>
                     {
-                        var settings = sp.GetRequiredService<IOptionsMonitor<AppSettings>>();
-                        return new BatteryWarningPolicy(() => settings.CurrentValue.Notifications);
+                        var settingsService = sp.GetRequiredService<ISettingsService>();
+                        return new BatteryWarningPolicy(() => settingsService.Settings.Notifications);
                     });
 
                     services.AddSingleton<IControllerManager, ControllerManager>();
