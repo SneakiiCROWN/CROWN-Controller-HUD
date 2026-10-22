@@ -409,7 +409,23 @@ namespace CrownControllerHUD.ViewModels
 
         private void ShowSettings()
         {
-            _logger.LogInformation("Settings requested");
+            try
+            {
+                var settingsService = App.ServiceProvider?.GetService(typeof(ISettingsService)) as ISettingsService;
+                var startupService = App.ServiceProvider?.GetService(typeof(IStartupService)) as IStartupService;
+                var notificationService = App.ServiceProvider?.GetService(typeof(INotificationService)) as INotificationService;
+                var controllerManager = App.ServiceProvider?.GetService(typeof(IControllerManager)) as IControllerManager;
+                var logger = App.ServiceProvider?.GetService(typeof(ILogger<SettingsWindow>)) as ILogger<SettingsWindow>;
+
+                var settingsWindow = new SettingsWindow(settingsService!, startupService!, notificationService!, controllerManager!, logger!);
+                settingsWindow.Show();
+                settingsWindow.Activate();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to open settings window");
+                DiagnosticLogger.Error("Settings window failed to open", ex);
+            }
         }
 
         private async Task TestNotificationAsync()

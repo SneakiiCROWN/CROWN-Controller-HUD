@@ -17,6 +17,7 @@ namespace CrownControllerHUD
 {
     public partial class App : Application
     {
+        public static IServiceProvider? ServiceProvider { get; private set; }
         private IHost? _host;
         private Mutex? _singleInstanceMutex;
         private const string MutexName = "Global\\CrownControllerHUD_SingleInstance";
@@ -81,6 +82,7 @@ namespace CrownControllerHUD
                 // Build host with DI
                 DiagnosticLogger.Debug("Building DI host");
                 _host = CreateHostBuilder(argsList).Build();
+                ServiceProvider = _host.Services;
 
                 // Start host off the UI thread so it cannot capture the dispatcher
                 // SynchronizationContext and deadlock the blocking wait below.
