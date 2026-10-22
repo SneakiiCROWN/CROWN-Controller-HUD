@@ -1,9 +1,10 @@
 using System;
 using System.Drawing;
 using System.IO;
-using System.Reflection;
 using System.Windows;
-using System.Windows.Media.Imaging;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using CrownControllerHUD.Models;
 using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.Logging;
@@ -60,20 +61,16 @@ namespace CrownControllerHUD.Services
                     NoLeftClickDelay = true
                 };
 
-                // Try to load icon from the app folder; this is the most reliable path
-                // for Hardcodet's TaskbarIcon, which wants a real System.Drawing.Icon.
                 try
                 {
                     var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "AppIcon.ico");
                     if (File.Exists(iconPath))
                     {
                         _trayIcon.Icon = new System.Drawing.Icon(iconPath);
-                        DiagnosticLogger.Debug($"Loaded tray icon from {iconPath}");
                     }
                     else
                     {
                         _trayIcon.Icon = CreateDefaultIcon();
-                        DiagnosticLogger.Debug("Created default tray icon");
                     }
                 }
                 catch (Exception ex)
@@ -82,13 +79,11 @@ namespace CrownControllerHUD.Services
                     try { _trayIcon.Icon = CreateDefaultIcon(); } catch { }
                 }
 
-                // Create context menu
                 CreateContextMenu();
 
-                // Double-click to show
                 _trayIcon.TrayLeftMouseDown += (s, e) =>
                 {
-                    if (e is System.Windows.Input.MouseButtonEventArgs mouseArgs && mouseArgs.ClickCount == 2)
+                    if (e is MouseButtonEventArgs mouseArgs && mouseArgs.ClickCount == 2)
                     {
                         ShowWindowRequested?.Invoke(this, EventArgs.Empty);
                     }
@@ -101,7 +96,6 @@ namespace CrownControllerHUD.Services
             {
                 DiagnosticLogger.Error("TrayService.Initialize() failed", ex);
                 _initialized = false;
-                // Don't throw - let the app continue without tray
             }
         }
 
@@ -109,57 +103,106 @@ namespace CrownControllerHUD.Services
         {
             if (_trayIcon == null) return;
 
-            var contextMenu = new System.Windows.Controls.ContextMenu();
+            var menu = new ContextMenu();
+            menu.Background = new SolidColorBrush(MediaColor(0x1F, 0x1F, 0x1F));
+            menu.BorderBrush = new SolidColorBrush(MediaColor(0x33, 0x33, 0x33));
+            menu.BorderThickness = new Thickness(1);
+            menu.Padding = new Thickness(2);
+            menu.HasDropShadow = true;
 
-            // Show/Hide item
-            var showItem = new System.Windows.Controls.MenuItem
+            // Item style
+            var itemStyle = new Style(typeof(MenuItem));
+            itemStyle.Setters.Add(new Setter(MenuItem.BackgroundProperty, System.Windows.Media.Brushes.Transparent));
+            itemStyle.Setters.Add(new Setter(MenuItem.ForegroundProperty, new SolidColorBrush(MediaColor(0xDD, 0xDD, 0xDD))));
+            itemStyle.Setters.Add(new Setter(MenuItem.PaddingProperty, new Thickness(14, 7, 14, 7)));
+            itemStyle.Setters.Add(new Setter(MenuItem.FontSizeProperty, 12.0));
+            itemStyle.Setters.Add(new Setter(MenuItem.FontFamilyProperty, new System.Windows.Media.FontFamily("Segoe UI")));
+            itemStyle.Setters.Add(new Setter(MenuItem.CursorProperty, Cursors.Hand));
+
+            var hoverTrigger = new Trigger { Property = MenuItem.IsMouseOverProperty, Value = true };
+            hoverTrigger.Setters.Add(new Setter(MenuItem.BackgroundProperty, new SolidColorBrush(MediaColor(0x2A, 0x2A, 0x2A))));
+            hoverTrigger.Setters.Add(new Setter(MenuItem.ForegroundProperty, System.Windows.Media.Brushes.White));
+            itemStyle.Triggers.Add(hoverTrigger);
+
+            menu.Resources.Add(typeof(MenuItem), itemStyle);
+
+            // Separator style
+            var sepStyle = new Style(typeof(Separator));
+            sepStyle.Setters.Add(new Setter(Separator.BackgroundProperty, new SolidColorBrush(MediaColor(0x33, 0x33, 0x33))));
+            sepStyle.Setters.Add(new Setter(Separator.MarginProperty, new Thickness(8, 2, 8, 2)));
+            sepStyle.Setters.Add(new Setter(Separator.HeightProperty, 1.0));
+            menu.Resources.Add(typeof(Separator), sepStyle);
+
+            // Header
+            var header = new MenuItem
             {
-                Header = "Show CROWN Controller HUD",
-                FontWeight = FontWeights.Bold
+                Header = "CROWN Controller HUD",
+                FontWeight = FontWeights.Bold,
+                FontSize = 12.0,
+                Foreground = new SolidColorBrush(MediaColor(0x00, 0x78, 0xD4)),
+                IsEnabled = false,
+                Padding = new Thickness(14, 8, 14, 8)
             };
+            menu.Items.Add(header);
+
+            menu.Items.Add(new Separator());
+
+            // Show Dashboard
+            var showItem = new MenuItem { Header = "Show Dashboard" };
             showItem.Click += (s, e) => ShowWindowRequested?.Invoke(this, EventArgs.Empty);
-            contextMenu.Items.Add(showItem);
+            menu.Items.Add(showItem);
 
-            contextMenu.Items.Add(new System.Windows.Controls.Separator());
-
-            // Refresh item
-            var refreshItem = new System.Windows.Controls.MenuItem { Header = "Refresh Controllers" };
+            // Refresh
+            var refreshItem = new MenuItem { Header = "Refresh Controllers" };
             refreshItem.Click += (s, e) => ShowWindowRequested?.Invoke(this, EventArgs.Empty);
-            contextMenu.Items.Add(refreshItem);
+            menu.Items.Add(refreshItem);
 
-            contextMenu.Items.Add(new System.Windows.Controls.Separator());
-
-            // Settings item
-            var settingsItem = new System.Windows.Controls.MenuItem { Header = "Settings" };
+            // Settings
+            var settingsItem = new MenuItem { Header = "Settings" };
             settingsItem.Click += (s, e) => ShowWindowRequested?.Invoke(this, EventArgs.Empty);
-            contextMenu.Items.Add(settingsItem);
+            menu.Items.Add(settingsItem);
 
-            contextMenu.Items.Add(new System.Windows.Controls.Separator());
+            menu.Items.Add(new Separator());
 
-            // Test notification item - runs the real CROWN renderer, not a tray balloon.
-            var testNotifyItem = new System.Windows.Controls.MenuItem { Header = "Test Notification" };
+            // Test Notification
+            var testNotifyItem = new MenuItem { Header = "Test Notification" };
             testNotifyItem.Click += (s, e) =>
+            {
+                try { _ = _notificationService.ShowTestNotificationAsync(); }
+                catch (Exception ex) { DiagnosticLogger.Error("Test notification failed", ex); }
+            };
+            menu.Items.Add(testNotifyItem);
+
+            // Toggle Notifications
+            var toggleItem = new MenuItem { Header = "Toggle Notifications" };
+            toggleItem.Click += (s, e) =>
             {
                 try
                 {
-                    _ = _notificationService.ShowTestNotificationAsync();
+                    var settings = _settings.CurrentValue;
+                    settings.Notifications.EnableNotifications = !settings.Notifications.EnableNotifications;
+                    DiagnosticLogger.Info($"[Tray] Notifications {(settings.Notifications.EnableNotifications ? "enabled" : "disabled")}");
                 }
-                catch (Exception ex)
-                {
-                    DiagnosticLogger.Error("Test notification failed", ex);
-                }
+                catch (Exception ex) { DiagnosticLogger.Error("Toggle notifications failed", ex); }
             };
-            contextMenu.Items.Add(testNotifyItem);
+            menu.Items.Add(toggleItem);
 
-            contextMenu.Items.Add(new System.Windows.Controls.Separator());
+            menu.Items.Add(new Separator());
 
-            // Exit item
-            var exitItem = new System.Windows.Controls.MenuItem { Header = "Exit" };
+            // Exit
+            var exitItem = new MenuItem { Header = "Exit" };
             exitItem.Click += (s, e) => ExitRequested?.Invoke(this, EventArgs.Empty);
-            contextMenu.Items.Add(exitItem);
+            menu.Items.Add(exitItem);
 
-            _trayIcon.ContextMenu = contextMenu;
+            _trayIcon.ContextMenu = menu;
         }
+
+        // Helper aliases for WPF media types
+        private static System.Windows.Media.Color MediaColor(byte r, byte g, byte b) =>
+            System.Windows.Media.Color.FromRgb(r, g, b);
+
+        private static System.Windows.Media.FontFamily MediaFontFamily(string name) =>
+            new System.Windows.Media.FontFamily(name);
 
         private System.Drawing.Icon CreateDefaultIcon()
         {
@@ -167,8 +210,8 @@ namespace CrownControllerHUD.Services
             var bitmap = new Bitmap(size, size);
             using (var g = Graphics.FromImage(bitmap))
             {
-                g.Clear(Color.Transparent);
-                using (var pen = new Pen(Color.FromArgb(0, 120, 212), 2.5f))
+                g.Clear(System.Drawing.Color.Transparent);
+                using (var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(0, 120, 212), 2.5f))
                 {
                     var points = new[]
                     {
@@ -187,7 +230,6 @@ namespace CrownControllerHUD.Services
             var hIcon = bitmap.GetHicon();
             try
             {
-                // Clone so the Icon owns its own handle and survives DestroyIcon.
                 using var fromHandle = System.Drawing.Icon.FromHandle(hIcon);
                 return (System.Drawing.Icon)fromHandle.Clone();
             }
@@ -208,7 +250,6 @@ namespace CrownControllerHUD.Services
 
         public void HideMainWindow()
         {
-            // Handled by main window
         }
 
         public void UpdateTrayIcon(ControllerInfo? primaryController = null)
@@ -223,7 +264,6 @@ namespace CrownControllerHUD.Services
                     _trayIcon.Icon = icon;
                 }
 
-                // Update tooltip with battery info
                 if (primaryController != null && primaryController.BatteryPercentage.HasValue)
                 {
                     var chargingText = primaryController.IsCharging ? " (Charging)" : "";
@@ -248,8 +288,8 @@ namespace CrownControllerHUD.Services
                 var bitmap = new Bitmap(size, size);
                 using (var g = Graphics.FromImage(bitmap))
                 {
-                    g.Clear(Color.Transparent);
-                    
+                    g.Clear(System.Drawing.Color.Transparent);
+
                     if (controller?.BatteryPercentage.HasValue == true)
                     {
                         DrawBatteryIndicator(g, controller.BatteryPercentage.Value, controller.IsCharging, size);
@@ -287,7 +327,7 @@ namespace CrownControllerHUD.Services
             var batteryX = rect.X + 2;
             var batteryY = rect.Y + 2;
 
-            using (var pen = new Pen(Color.White, 2))
+            using (var pen = new System.Drawing.Pen(System.Drawing.Color.White, 2))
             {
                 g.DrawRectangle(pen, batteryX, batteryY, batteryWidth, batteryHeight);
                 g.DrawRectangle(pen, batteryX + batteryWidth, batteryY + batteryHeight / 3, 2, batteryHeight / 3);
@@ -296,9 +336,9 @@ namespace CrownControllerHUD.Services
             var fillWidth = (int)((batteryWidth - 2) * (percentage / 100.0));
             var fillColor = percentage switch
             {
-                >= 50 => Color.FromArgb(0, 200, 0),
-                >= 15 => Color.FromArgb(255, 165, 0),
-                _ => Color.FromArgb(255, 50, 50)
+                >= 50 => System.Drawing.Color.FromArgb(0, 200, 0),
+                >= 15 => System.Drawing.Color.FromArgb(255, 165, 0),
+                _ => System.Drawing.Color.FromArgb(255, 50, 50)
             };
 
             using (var brush = new SolidBrush(fillColor))
@@ -308,27 +348,27 @@ namespace CrownControllerHUD.Services
 
             if (isCharging)
             {
-                using (var font = new Font(new FontFamily("Segoe UI"), 8, System.Drawing.FontStyle.Bold))
-                using (var brush = new SolidBrush(Color.Yellow))
+                using (var font = new Font(new System.Drawing.FontFamily("Segoe UI"), 8, System.Drawing.FontStyle.Bold))
+                using (var brush = new SolidBrush(System.Drawing.Color.Yellow))
                 {
                     g.DrawString("⚡", font, brush, batteryX + batteryWidth / 2 - 4, batteryY - 2);
                 }
             }
 
-            using (var font = new Font(new FontFamily("Segoe UI"), 7, System.Drawing.FontStyle.Bold))
-            using (var brush = new SolidBrush(Color.White))
+            using (var font = new Font(new System.Drawing.FontFamily("Segoe UI"), 7, System.Drawing.FontStyle.Bold))
+            using (var brush = new SolidBrush(System.Drawing.Color.White))
             {
                 var text = $"{percentage}%";
                 var textSize = g.MeasureString(text, font);
-                g.DrawString(text, font, brush, 
-                    size / 2 - textSize.Width / 2, 
+                g.DrawString(text, font, brush,
+                    size / 2 - textSize.Width / 2,
                     size - textSize.Height - 1);
             }
         }
 
         private void DrawDefaultIcon(Graphics g, int size)
         {
-            using (var pen = new Pen(Color.FromArgb(0, 120, 212), 2.5f))
+            using (var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(0, 120, 212), 2.5f))
             {
                 var points = new[]
                 {
@@ -337,7 +377,7 @@ namespace CrownControllerHUD.Services
                     new System.Drawing.Point(size/2 + 8, size - 4)
                 };
                 g.DrawPolygon(pen, points);
-                
+
                 g.DrawLine(pen, size/2 - 8, size - 4, size/2 - 4, size/2);
                 g.DrawLine(pen, size/2 - 4, size/2, size/2, size - 4);
                 g.DrawLine(pen, size/2, size - 4, size/2 + 4, size/2);
