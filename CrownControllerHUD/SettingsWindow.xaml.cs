@@ -10,6 +10,8 @@ namespace CrownControllerHUD
 {
     public partial class SettingsWindow : Window
     {
+        private bool _isLoading = true;
+
         private readonly ISettingsService _settingsService;
         private readonly IStartupService _startupService;
         private readonly INotificationService _notificationService;
@@ -31,10 +33,12 @@ namespace CrownControllerHUD
             _logger = logger;
 
             LoadSettings();
+            _isLoading = false;
         }
 
         private void LoadSettings()
         {
+            _isLoading = true;
             var s = _settingsService.Settings;
 
             // General
@@ -66,10 +70,13 @@ namespace CrownControllerHUD
 
             // Sync startup checkbox with actual registry state
             StartWithWindows.IsChecked = _startupService.IsStartupEnabled;
+
+            _isLoading = false;
         }
 
         private void SaveSettings()
         {
+            if (_isLoading) return;
             var s = _settingsService.Settings;
 
             // General
@@ -143,6 +150,7 @@ namespace CrownControllerHUD
 
         private void StartWithWindows_Changed(object sender, RoutedEventArgs e)
         {
+            if (_isLoading) return;
             if (StartWithWindows.IsChecked == true)
             {
                 _startupService.EnableStartup();
@@ -156,11 +164,13 @@ namespace CrownControllerHUD
 
         private void EnableNotifications_Changed(object sender, RoutedEventArgs e)
         {
+            if (_isLoading) return;
             SaveSettings();
         }
 
         private void NotificationDuration_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            if (_isLoading) return;
             if (DurationText != null)
                 DurationText.Text = $"{(int)e.NewValue} ms";
             SaveSettings();
@@ -178,6 +188,7 @@ namespace CrownControllerHUD
             if (result == MessageBoxResult.Yes)
             {
                 _settingsService.ResetToDefaults();
+                _startupService.DisableStartup();
                 LoadSettings();
             }
         }

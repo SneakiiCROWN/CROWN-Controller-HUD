@@ -26,8 +26,10 @@ namespace CrownControllerHUD.Services
     public class TrayService : ITrayService, IDisposable
     {
         private readonly ILogger<TrayService> _logger;
-        private readonly IOptionsMonitor<AppSettings> _settings;
+        private readonly ISettingsService _settingsService;
         private readonly INotificationService _notificationService;
+        private readonly IStartupService _startupService;
+        private readonly IControllerManager _controllerManager;
         private TaskbarIcon? _trayIcon;
         private bool _disposed = false;
         private bool _initialized = false;
@@ -37,12 +39,16 @@ namespace CrownControllerHUD.Services
 
         public TrayService(
             ILogger<TrayService> logger,
-            IOptionsMonitor<AppSettings> settings,
-            INotificationService notificationService)
+            ISettingsService settingsService,
+            INotificationService notificationService,
+            IStartupService startupService,
+            IControllerManager controllerManager)
         {
             _logger = logger;
-            _settings = settings;
+            _settingsService = settingsService;
             _notificationService = notificationService;
+            _startupService = startupService;
+            _controllerManager = controllerManager;
         }
 
         public void Initialize()
@@ -179,8 +185,9 @@ namespace CrownControllerHUD.Services
             {
                 try
                 {
-                    var settings = _settings.CurrentValue;
+                    var settings = _settingsService.Settings;
                     settings.Notifications.EnableNotifications = !settings.Notifications.EnableNotifications;
+                    _ = _settingsService.SaveAsync();
                     DiagnosticLogger.Info($"[Tray] Notifications {(settings.Notifications.EnableNotifications ? "enabled" : "disabled")}");
                 }
                 catch (Exception ex) { DiagnosticLogger.Error("Toggle notifications failed", ex); }

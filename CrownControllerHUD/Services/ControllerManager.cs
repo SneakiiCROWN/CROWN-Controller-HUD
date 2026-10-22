@@ -59,7 +59,7 @@ namespace CrownControllerHUD.Services
         private static readonly TimeSpan DebounceWindow = TimeSpan.FromMilliseconds(300);
 
         private readonly ILogger<ControllerManager> _logger;
-        private readonly IOptionsMonitor<AppSettings> _settings;
+        private readonly ISettingsService _settingsService;
         private readonly ILiveConnectionMonitor _liveMonitor;
         private readonly IUsbLiveConnectionMonitor _usbLiveMonitor;
         private readonly IBatteryTelemetryService? _battery;
@@ -103,7 +103,7 @@ namespace CrownControllerHUD.Services
                 lock (_lock)
                 {
                     return _controllers.Values
-                        .Where(c => _settings.CurrentValue.Controllers.ShowDisconnectedControllers || c.IsConnected)
+                        .Where(c => _settingsService.Settings.Controllers.ShowDisconnectedControllers || c.IsConnected)
                         .OrderBy(c => c.Type)
                         .ThenBy(c => c.Name)
                         .ToList();
@@ -119,14 +119,14 @@ namespace CrownControllerHUD.Services
 
         public ControllerManager(
             ILogger<ControllerManager> logger,
-            IOptionsMonitor<AppSettings> settings,
+            ISettingsService settingsService,
             ILiveConnectionMonitor liveMonitor,
             IUsbLiveConnectionMonitor usbLiveMonitor,
             IEnumerable<IControllerDetector> detectors,
             IBatteryTelemetryService? battery = null)
         {
             _logger = logger;
-            _settings = settings;
+            _settingsService = settingsService;
             _liveMonitor = liveMonitor;
             _usbLiveMonitor = usbLiveMonitor;
             _battery = battery;
@@ -586,7 +586,7 @@ namespace CrownControllerHUD.Services
             if (_disposed || _battery == null)
                 return;
 
-            if (!_settings.CurrentValue.Battery.EnableBatteryTelemetry)
+            if (!_settingsService.Settings.Battery.EnableBatteryTelemetry)
                 return;
 
             var id = controller.DeviceId;
@@ -717,7 +717,7 @@ namespace CrownControllerHUD.Services
                 if (controller.BatteryLastUpdated.HasValue)
                 {
                     var age = DateTime.Now - controller.BatteryLastUpdated.Value;
-                    controller.BatteryIsStale = age > TimeSpan.FromSeconds(_settings.CurrentValue.Battery.StaleAfterSeconds);
+                    controller.BatteryIsStale = age > TimeSpan.FromSeconds(_settingsService.Settings.Battery.StaleAfterSeconds);
                 }
             }
         }

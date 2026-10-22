@@ -156,7 +156,8 @@ namespace CrownControllerHUD
 
                     if (startMinimized || startHidden)
                     {
-                        trayService.ShowBalloonTip("CROWN Controller HUD", "Running in background", BalloonIcon.Info);
+                        // No balloon tip - CROWN starts quietly in the tray.
+                        DiagnosticLogger.Info("Application started hidden/minimized to tray");
                     }
                 }
                 catch (Exception ex)

@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using CrownControllerHUD.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CrownControllerHUD.Services
 {
@@ -36,6 +37,13 @@ namespace CrownControllerHUD.Services
         public AppSettings Settings => _settings;
 
         public event EventHandler<SettingsChangedEventArgs>? SettingsChanged;
+
+        public AppSettings Get(string? name) => _settings;
+
+        private class NoOpDisposable : IDisposable
+        {
+            public void Dispose() { }
+        }
 
         public SettingsService(ILogger<SettingsService> logger)
         {
@@ -88,17 +96,22 @@ namespace CrownControllerHUD.Services
             return Task.CompletedTask;
         }
 
+        private readonly object _saveLock = new();
+
         public Task SaveAsync()
         {
-            try
+            lock (_saveLock)
             {
-                var json = JsonSerializer.Serialize(_settings, _jsonOptions);
-                File.WriteAllText(_settingsPath, json);
-                _logger.LogInformation("Settings saved to {Path}", _settingsPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save settings");
+                try
+                {
+                    var json = JsonSerializer.Serialize(_settings, _jsonOptions);
+                    File.WriteAllText(_settingsPath, json);
+                    _logger.LogInformation("Settings saved to {Path}", _settingsPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to save settings");
+                }
             }
 
             return Task.CompletedTask;

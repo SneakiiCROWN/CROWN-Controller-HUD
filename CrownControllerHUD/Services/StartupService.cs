@@ -29,12 +29,12 @@ namespace CrownControllerHUD.Services
         private const string RegistryValueName = "CrownControllerHUD";
 
         private readonly ILogger<StartupService> _logger;
-        private readonly IOptionsMonitor<AppSettings> _settings;
+        private readonly ISettingsService _settingsService;
 
-        public StartupService(ILogger<StartupService> logger, IOptionsMonitor<AppSettings> settings)
+        public StartupService(ILogger<StartupService> logger, ISettingsService settingsService)
         {
             _logger = logger;
-            _settings = settings;
+            _settingsService = settingsService;
         }
 
         public bool IsStartupEnabled
@@ -96,8 +96,8 @@ namespace CrownControllerHUD.Services
                 key.SetValue(RegistryValueName, command, RegistryValueKind.String);
 
                 // Update settings
-                _settings.CurrentValue.General.StartWithWindows = true;
-                _settings.CurrentValue.General.StartMinimized = true;
+                _settingsService.Settings.General.StartWithWindows = true;
+                _settingsService.Settings.General.StartMinimized = true;
 
                 DiagnosticLogger.Info($"[Startup] Enabled: {command}");
                 _logger.LogInformation("Windows startup enabled: {Command}", command);
@@ -121,7 +121,7 @@ namespace CrownControllerHUD.Services
                     key.DeleteValue(RegistryValueName, false);
                 }
 
-                _settings.CurrentValue.General.StartWithWindows = false;
+                _settingsService.Settings.General.StartWithWindows = false;
 
                 DiagnosticLogger.Info("[Startup] Disabled");
                 _logger.LogInformation("Windows startup disabled");

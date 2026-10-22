@@ -42,20 +42,20 @@ namespace CrownControllerHUD.Services
     public class NotificationService : INotificationService
     {
         private readonly ILogger<NotificationService> _logger;
-        private readonly IOptionsMonitor<AppSettings> _settings;
+        private readonly ISettingsService _settingsService;
         private readonly INotificationRenderer _renderer;
 
         public NotificationService(
             ILogger<NotificationService> logger,
-            IOptionsMonitor<AppSettings> settings,
+            ISettingsService settingsService,
             INotificationRenderer renderer)
         {
             _logger = logger;
-            _settings = settings;
+            _settingsService = settingsService;
             _renderer = renderer;
         }
 
-        private NotificationSettings Settings => _settings.CurrentValue.Notifications;
+        private NotificationSettings Settings => _settingsService.Settings.Notifications;
 
         public Task ShowControllerConnectedAsync(ControllerInfo controller)
         {

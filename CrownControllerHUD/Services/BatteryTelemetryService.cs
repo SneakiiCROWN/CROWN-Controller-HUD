@@ -68,7 +68,7 @@ namespace CrownControllerHUD.Services
         private static readonly Guid BatteryLevelUuid = new Guid("00002A19-0000-1000-8000-00805F9B34FB");
 
         private readonly ILogger<BatteryTelemetryService> _logger;
-        private readonly IOptionsMonitor<AppSettings> _settings;
+        private readonly ISettingsService _settingsService;
 
         private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.OrdinalIgnoreCase);
@@ -78,10 +78,10 @@ namespace CrownControllerHUD.Services
 
         public BatteryTelemetryService(
             ILogger<BatteryTelemetryService> logger,
-            IOptionsMonitor<AppSettings> settings)
+            ISettingsService settingsService)
         {
             _logger = logger;
-            _settings = settings;
+            _settingsService = settingsService;
         }
 
         public string LastError => _lastError;
@@ -109,7 +109,7 @@ namespace CrownControllerHUD.Services
             if (_disposed || controller == null)
                 return null;
 
-            var settings = _settings.CurrentValue.Battery;
+            var settings = _settingsService.Settings.Battery;
             if (!settings.EnableBatteryTelemetry)
                 return null;
 
