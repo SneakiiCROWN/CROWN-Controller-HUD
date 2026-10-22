@@ -127,7 +127,29 @@ namespace CrownControllerHUD.Services
         private AppSettings MergeWithDefaults(AppSettings loaded)
         {
             var defaults = new AppSettings();
-            // Simple merge - in production, use a proper deep merge
+            
+            // Deep merge: ensure all settings sections exist and have valid values
+            // General
+            loaded.General ??= defaults.General;
+            
+            // Notifications
+            loaded.Notifications ??= defaults.Notifications;
+            loaded.Notifications.BatteryWarnings ??= defaults.Notifications.BatteryWarnings;
+            
+            // UI
+            loaded.UI ??= defaults.UI;
+            
+            // Controllers
+            loaded.Controllers ??= defaults.Controllers;
+            loaded.Controllers.HiddenControllerIds ??= defaults.Controllers.HiddenControllerIds;
+            loaded.Controllers.Overrides ??= defaults.Controllers.Overrides;
+            
+            // Advanced
+            loaded.Advanced ??= defaults.Advanced;
+            
+            // Battery
+            loaded.Battery ??= defaults.Battery;
+            
             return loaded;
         }
 

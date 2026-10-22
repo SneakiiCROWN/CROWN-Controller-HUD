@@ -5,144 +5,413 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="CROWN Settings"
-        Height="600" Width="800"
-        MinHeight="500" MinWidth="700"
+        Height="650" Width="850"
+        MinHeight="550" MinWidth="750"
         WindowStartupLocation="CenterScreen"
         Background="#1A1A1A"
         Foreground="#FFFFFF"
         FontFamily="Segoe UI, sans-serif">
+    <Window.Resources>
+        <!-- Selected category button style -->
+        <Style x:Key="CategoryButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="Margin" Value="0,4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border" 
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- Selection indicator -->
+                                <Border x:Name="SelectionIndicator" 
+                                        Width="3" 
+                                        Background="#0078D4" 
+                                        CornerRadius="1.5"
+                                        HorizontalAlignment="Left"
+                                        Visibility="Collapsed"
+                                        Margin="0,8,0,8"/>
+                                <ContentPresenter Grid.Column="1" 
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center" 
+                                                  RecognizesAccessKey="True"
+                                                  Margin="8,0,0,0"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#2A2A2A"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Border" Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="#666666"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- CheckBox style with better spacing -->
+        <Style x:Key="SettingsCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Margin" Value="0,10,0,2"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <!-- Setting description text -->
+        <Style x:Key="SettingDescriptionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="Margin" Value="24,0,0,10"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+
+        <!-- Section header -->
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#AAAAAA"/>
+            <Setter Property="Margin" Value="0,20,0,8"/>
+        </Style>
+
+        <!-- Panel header -->
+        <Style x:Key="PanelHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Margin" Value="0,0,0,20"/>
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="180"/>
+            <ColumnDefinition Width="200"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- Category List -->
-        <Border Grid.Column="0" Background="#1F1F1F" BorderBrush="#333333" BorderThickness="0,0,1,0">
-            <StackPanel Margin="8">
-                <TextBlock Text="SETTINGS" FontSize="16" FontWeight="Bold" Foreground="#0078D4" Margin="8,12,8,16"/>
-                <Button Content="General" Style="{StaticResource SecondaryButtonStyle}" 
-                        Margin="0,2" Padding="12,8" HorizontalAlignment="Stretch" 
-                        Click="General_Click" HorizontalContentAlignment="Left"/>
-                <Button Content="Notifications" Style="{StaticResource SecondaryButtonStyle}" 
-                        Margin="0,2" Padding="12,8" HorizontalAlignment="Stretch" 
-                        Click="Notifications_Click" HorizontalContentAlignment="Left"/>
-                <Button Content="Battery" Style="{StaticResource SecondaryButtonStyle}" 
-                        Margin="0,2" Padding="12,8" HorizontalAlignment="Stretch" 
-                        Click="Battery_Click" HorizontalContentAlignment="Left"/>
-                <Button Content="Appearance" Style="{StaticResource SecondaryButtonStyle}" 
-                        Margin="0,2" Padding="12,8" HorizontalAlignment="Stretch" 
-                        Click="Appearance_Click" HorizontalContentAlignment="Left"/>
-            </StackPanel>
+        <Border Grid.Column="0" Background="#161616" BorderBrush="#333333" BorderThickness="0,0,1,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,12">
+                <StackPanel>
+                    <TextBlock Text="SETTINGS" FontSize="14" FontWeight="Bold" Foreground="#0078D4" 
+                               Margin="8,0,8,20"/>
+                    
+                    <Button x:Name="BtnGeneral" Content="General" Style="{StaticResource CategoryButtonStyle}" 
+                            Click="General_Click" Tag="GeneralPanel"/>
+                    <Button x:Name="BtnNotifications" Content="Notifications" Style="{StaticResource CategoryButtonStyle}" 
+                            Click="Notifications_Click" Tag="NotificationsPanel"/>
+                    <Button x:Name="BtnBattery" Content="Battery" Style="{StaticResource CategoryButtonStyle}" 
+                            Click="Battery_Click" Tag="BatteryPanel"/>
+                    <Button x:Name="BtnControllers" Content="Controllers" Style="{StaticResource CategoryButtonStyle}" 
+                            Click="Controllers_Click" Tag="ControllersPanel"/>
+                    <Button x:Name="BtnAppearance" Content="Appearance" Style="{StaticResource CategoryButtonStyle}" 
+                            Click="Appearance_Click" Tag="AppearancePanel"/>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <!-- Content Area -->
-        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Padding="20">
-            <StackPanel x:Name="ContentPanel">
-                <!-- General Settings -->
-                <StackPanel x:Name="GeneralPanel">
-                    <TextBlock Text="General" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,16"/>
-                    
-                    <CheckBox x:Name="StartWithWindows" Content="Start with Windows" 
-                              Foreground="#CCCCCC" Margin="0,8" Checked="StartWithWindows_Changed" Unchecked="StartWithWindows_Changed"/>
-                    <TextBlock Text="Start CROWN automatically when you sign in to Windows." 
-                               FontSize="11" Foreground="#888888" Margin="20,0,0,8"/>
-                    
-                    <CheckBox x:Name="StartHidden" Content="Start hidden (minimised to tray)" 
-                              Foreground="#CCCCCC" Margin="0,8"/>
-                    <TextBlock Text="Don't show the dashboard on startup." 
-                               FontSize="11" Foreground="#888888" Margin="20,0,0,8"/>
-                    
-                    <CheckBox x:Name="MinimizeToTray" Content="Minimise to tray" 
-                              Foreground="#CCCCCC" Margin="0,8"/>
-                    <TextBlock Text="Minimise the dashboard to the system tray instead of the taskbar." 
-                               FontSize="11" Foreground="#888888" Margin="20,0,0,8"/>
-                    
-                    <CheckBox x:Name="CloseToTray" Content="Close to tray" 
-                              Foreground="#CCCCCC" Margin="0,8"/>
-                    <TextBlock Text="Closing the dashboard keeps CROWN running in the background." 
-                               FontSize="11" Foreground="#888888" Margin="20,0,0,8"/>
-                    
-                    <CheckBox x:Name="ShowDisconnected" Content="Show disconnected controllers" 
-                              Foreground="#CCCCCC" Margin="0,8"/>
-                    <TextBlock Text="Display controllers even when they're powered off." 
-                               FontSize="11" Foreground="#888888" Margin="20,0,0,8"/>
-                    
-                    <Button Content="Reset to Defaults" Style="{StaticResource SecondaryButtonStyle}" 
-                            Margin="0,16,0,0" Padding="16,8" HorizontalAlignment="Left"
-                            Click="ResetDefaults_Click"/>
-                </StackPanel>
-
-                <!-- Notifications Settings -->
-                <StackPanel x:Name="NotificationsPanel" Visibility="Collapsed">
-                    <TextBlock Text="Notifications" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,16"/>
-                    
-                    <CheckBox x:Name="EnableNotifications" Content="Enable notifications" 
-                              Foreground="#CCCCCC" Margin="0,8" Checked="EnableNotifications_Changed" Unchecked="EnableNotifications_Changed"/>
-                    
-                    <TextBlock Text="Notification Types" FontSize="13" FontWeight="SemiBold" Foreground="#AAAAAA" Margin="0,12,0,8"/>
-                    
-                    <CheckBox x:Name="NotifyOnConnect" Content="Controller connected" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="NotifyOnDisconnect" Content="Controller disconnected" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="NotifyOnLowBattery" Content="Low battery" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="NotifyOnCriticalBattery" Content="Critical battery" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="NotifyOnCharging" Content="Charging started" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="NotifyOnFullCharge" Content="Fully charged" Foreground="#CCCCCC" Margin="20,4"/>
-                    
-                    <TextBlock Text="Notification Duration" FontSize="13" FontWeight="SemiBold" Foreground="#AAAAAA" Margin="0,12,0,8"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                        <Slider x:Name="NotificationDuration" Minimum="1500" Maximum="30000" Width="200" 
-                                ValueChanged="NotificationDuration_Changed"/>
-                        <TextBlock x:Name="DurationText" Text="5000 ms" FontSize="12" Foreground="#CCCCCC" Margin="12,0,0,0" VerticalAlignment="Center"/>
+        <Border Grid.Column="1" Background="#1A1A1A">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="24">
+                <StackPanel x:Name="ContentPanel">
+                    <!-- General Settings -->
+                    <StackPanel x:Name="GeneralPanel">
+                        <TextBlock Text="General" Style="{StaticResource PanelHeaderStyle}"/>
+                        
+                        <CheckBox x:Name="StartWithWindows" Content="Start with Windows" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"
+                                  Checked="StartWithWindows_Changed" Unchecked="StartWithWindows_Changed"/>
+                        <TextBlock Text="Start CROWN automatically when you sign in to Windows." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="StartHidden" Content="Start hidden (minimised to tray)" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Don't show the dashboard on startup." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="MinimizeToTray" Content="Minimise to tray" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Minimise the dashboard to the system tray instead of the taskbar." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="CloseToTray" Content="Close to tray" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Closing the dashboard keeps CROWN running in the background." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="ShowDisconnected" Content="Show disconnected controllers" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Display controllers even when they're powered off." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <Separator Margin="0,12,0,8" Background="#333333"/>
+                        <Button Content="Reset All Settings to Defaults" Style="{StaticResource DangerButtonStyle}" 
+                                Margin="0,4,0,0" Padding="16,8" HorizontalAlignment="Left"
+                                Click="ResetDefaults_Click"/>
                     </StackPanel>
-                    
-                    <TextBlock Text="Sound" FontSize="13" FontWeight="SemiBold" Foreground="#AAAAAA" Margin="0,12,0,8"/>
-                    <CheckBox x:Name="PlaySound" Content="Play notification sound" Foreground="#CCCCCC" Margin="0,4"/>
-                    
-                    <TextBlock Text="Position" FontSize="13" FontWeight="SemiBold" Foreground="#AAAAAA" Margin="0,12,0,8"/>
-                    <ComboBox x:Name="NotificationPosition" Width="200" Margin="0,4" IsEnabled="False">
-                        <ComboBoxItem Content="Bottom Right (default)"/>
-                    </ComboBox>
-                    <TextBlock Text="Position selection coming in a future update." FontSize="11" Foreground="#888888" Margin="0,4"/>
-                    
-                    <Button Content="Test Notification" Style="{StaticResource PrimaryButtonStyle}" 
-                            Margin="0,16,0,0" Padding="16,8" HorizontalAlignment="Left"
-                            Click="TestNotification_Click"/>
-                </StackPanel>
 
-                <!-- Battery Settings -->
-                <StackPanel x:Name="BatteryPanel" Visibility="Collapsed">
-                    <TextBlock Text="Battery" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,16"/>
-                    
-                    <CheckBox x:Name="EnableBatteryTelemetry" Content="Enable battery telemetry" 
-                              Foreground="#CCCCCC" Margin="0,8"/>
-                    <TextBlock Text="Read genuine battery levels from supported sources." 
-                               FontSize="11" Foreground="#888888" Margin="20,0,0,8"/>
-                    
-                    <TextBlock Text="Warning Thresholds" FontSize="13" FontWeight="SemiBold" Foreground="#AAAAAA" Margin="0,12,0,8"/>
-                    <TextBlock Text="Warnings fire when battery drops below these levels. Each level warns once per discharge." 
-                               FontSize="11" Foreground="#888888" Margin="0,0,0,8"/>
-                    
-                    <CheckBox x:Name="Warn50" Content="50%" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="Warn20" Content="20%" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="Warn15" Content="15%" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="Warn10" Content="10% (critical)" Foreground="#CCCCCC" Margin="20,4"/>
-                    <CheckBox x:Name="Warn5" Content="5% (critical)" Foreground="#CCCCCC" Margin="20,4"/>
-                    
-                    <TextBlock Text="Battery telemetry is read only from genuine sources (Windows.Gaming.Input, Bluetooth GATT 0x180F, XInput). 
-No values are fabricated. Missing data shows as Unknown, never 0%." 
-                               FontSize="11" Foreground="#888888" Margin="0,12,0,0" TextWrapping="Wrap"/>
-                </StackPanel>
+                    <!-- Notifications Settings -->
+                    <StackPanel x:Name="NotificationsPanel" Visibility="Collapsed">
+                        <TextBlock Text="Notifications" Style="{StaticResource PanelHeaderStyle}"/>
+                        
+                        <CheckBox x:Name="EnableNotifications" Content="Enable notifications" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"
+                                  Checked="EnableNotifications_Changed" Unchecked="EnableNotifications_Changed"
+                                  FontWeight="Medium"/>
+                        
+                        <TextBlock Text="Notification Types" Style="{StaticResource SectionHeaderStyle}"/>
+                        
+                        <CheckBox x:Name="NotifyOnConnect" Content="Controller connected" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="NotifyOnDisconnect" Content="Controller disconnected" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="NotifyOnLowBattery" Content="Low battery" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="NotifyOnCriticalBattery" Content="Critical battery" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="NotifyOnCharging" Content="Charging started" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="NotifyOnFullCharge" Content="Fully charged" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        
+                        <TextBlock Text="Advanced Battery Warnings" Style="{StaticResource SectionHeaderStyle}"/>
+                        <CheckBox x:Name="NotifyOnBatteryWarnings" Content="Enable configurable battery warning ladder (50%, 20%, 15%, 10%, 5%)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="NotifyOnBatteryRecovered" Content="Notify when battery recovers above all warning levels (re-arms warnings)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        
+                        <TextBlock Text="Notification Duration" Style="{StaticResource SectionHeaderStyle}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4">
+                            <Slider x:Name="NotificationDuration" Minimum="1500" Maximum="30000" Width="250" 
+                                    TickFrequency="500" IsSnapToTickEnabled="True"
+                                    ValueChanged="NotificationDuration_Changed"
+                                    ToolTip="How long notifications stay on screen"/>
+                            <TextBlock x:Name="DurationText" Text="5000 ms" FontSize="12" Foreground="#CCCCCC" Margin="16,0,0,0" VerticalAlignment="Center" MinWidth="80"/>
+                        </StackPanel>
+                        <TextBlock Text="Duration in milliseconds (1500–30000)" Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <TextBlock Text="Sound" Style="{StaticResource SectionHeaderStyle}"/>
+                        <CheckBox x:Name="PlaySound" Content="Play notification sound" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        
+                        <TextBlock Text="Position" Style="{StaticResource SectionHeaderStyle}"/>
+                        <ComboBox x:Name="NotificationPosition" Width="250" Margin="0,4" IsEnabled="False">
+                            <ComboBoxItem Content="Bottom Right (default)"/>
+                        </ComboBox>
+                        <TextBlock Text="Position selection coming in a future update." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <Separator Margin="0,12,0,8" Background="#333333"/>
+                        <Button Content="Test Notification" Style="{StaticResource PrimaryButtonStyle}" 
+                                Margin="0,4,0,0" Padding="16,8" HorizontalAlignment="Left"
+                                Click="TestNotification_Click"/>
+                    </StackPanel>
 
-                <!-- Appearance Settings -->
-                <StackPanel x:Name="AppearancePanel" Visibility="Collapsed">
-                    <TextBlock Text="Appearance" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,16"/>
-                    <TextBlock Text="Theme and accent colour customisation coming in a future update." 
-                               FontSize="12" Foreground="#888888" Margin="0,8"/>
-                    <TextBlock Text="Default: CROWN Dark (premium dark theme)" 
-                               FontSize="12" Foreground="#CCCCCC" Margin="0,4"/>
+                    <!-- Battery Settings -->
+                    <StackPanel x:Name="BatteryPanel" Visibility="Collapsed">
+                        <TextBlock Text="Battery" Style="{StaticResource PanelHeaderStyle}"/>
+                        
+                        <CheckBox x:Name="EnableBatteryTelemetry" Content="Enable battery telemetry" 
+                                  Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Read genuine battery levels from supported sources (Windows.Gaming.Input, Bluetooth GATT, XInput)." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <TextBlock Text="Telemetry Sources" Style="{StaticResource SectionHeaderStyle}"/>
+                        <CheckBox x:Name="EnableGameControllerApiBattery" Content="Windows.Gaming.Input (TryGetBatteryReport)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="EnableGattBattery" Content="Bluetooth GATT Battery Service (0x180F/0x2A19)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="EnableXInputBattery" Content="XInput categorical levels" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="EnableHidBatteryDiagnostics" Content="HID feature report diagnostics (logging only, never used for percentage)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        
+                        <TextBlock Text="Warning Thresholds" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock Text="Warnings fire when battery drops below these levels. Each level warns once per discharge." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="Warn50" Content="50%" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="Warn20" Content="20%" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="Warn15" Content="15%" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="Warn10" Content="10% (critical)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <CheckBox x:Name="Warn5" Content="5% (critical)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        
+                        <TextBlock Text="Advanced" Style="{StaticResource SectionHeaderStyle}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4">
+                            <TextBlock Text="Refresh interval:" FontSize="12" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Slider x:Name="BatteryRefreshInterval" Minimum="30" Maximum="3600" Width="200" 
+                                    ValueChanged="BatteryRefreshInterval_Changed"
+                                    ToolTip="Minimum seconds between battery reads"/>
+                            <TextBlock x:Name="BatteryRefreshIntervalText" Text="300 s" FontSize="12" Foreground="#CCCCCC" Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="60"/>
+                        </StackPanel>
+                        <TextBlock Text="How often to attempt a fresh battery reading (30–3600 seconds)" Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0,4">
+                            <TextBlock Text="Stale after:" FontSize="12" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Slider x:Name="BatteryStaleAfter" Minimum="60" Maximum="86400" Width="200" 
+                                    ValueChanged="BatteryStaleAfter_Changed"
+                                    ToolTip="Seconds after which a reading is marked stale"/>
+                            <TextBlock x:Name="BatteryStaleAfterText" Text="900 s" FontSize="12" Foreground="#CCCCCC" Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="60"/>
+                        </StackPanel>
+                        <TextBlock Text="Mark readings as stale after this many seconds (60–86400)" Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="UseCachedGattReadsOnly" Content="Use cached Bluetooth GATT reads only (no extra Bluetooth traffic)" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="When enabled, only reads the Windows Bluetooth cache; never issues uncached GATT reads." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <Separator Margin="0,12,0,8" Background="#333333"/>
+                        <TextBlock Text="Battery telemetry is read only from genuine sources. No values are fabricated. Missing data shows as Unknown, never 0%." 
+                                   Style="{StaticResource SettingDescriptionStyle}" FontSize="11" FontStyle="Italic" Foreground="#666666"/>
+                    </StackPanel>
+
+                    <!-- Controllers Settings -->
+                    <StackPanel x:Name="ControllersPanel" Visibility="Collapsed">
+                        <TextBlock Text="Controller Profiles" Style="{StaticResource PanelHeaderStyle}"/>
+                        <TextBlock Text="Saved controller nicknames and profile options. Names persist across restarts and Bluetooth/USB handoffs." 
+                                   Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <Border Background="#161616" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Saved Profiles" Style="{StaticResource SectionHeaderStyle}"/>
+                                <ListView x:Name="SavedControllersList" 
+                                          ItemsSource="{Binding SavedControllers}" 
+                                          Background="Transparent" BorderThickness="0"
+                                          Height="280"
+                                          AlternationCount="2">
+                                    <ListView.Resources>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Padding" Value="8,6"/>
+                                            <Setter Property="Margin" Value="0,2"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListViewItem">
+                                                        <Border x:Name="Border" Background="Transparent" CornerRadius="4" Padding="4" SnapsToDevicePixels="True">
+                                                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="Border" Property="Background" Value="#2A2A2A"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsSelected" Value="True">
+                                                                <Setter TargetName="Border" Property="Background" Value="#2A2A2A"/>
+                                                                <Setter TargetName="Border" Property="BorderBrush" Value="#0078D4"/>
+                                                                <Setter TargetName="Border" Property="BorderThickness" Value="1"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListView.Resources>
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Nickname" Width="220">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding CustomName}" FontSize="13" FontWeight="Medium" Foreground="#FFFFFF"/>
+                                                            <TextBlock Text=" (custom)" FontSize="11" Foreground="#0078D4" 
+                                                                       Visibility="{Binding HasCustomName, Converter={StaticResource BoolToVis}}"/>
+                                                            <TextBlock Text="{Binding TypeName}" FontSize="12" Foreground="#888888" Margin="8,0,0,0"
+                                                                       Visibility="{Binding HasCustomName, Converter={StaticResource BoolToVis}, ConverterParameter=inverse}"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                            <GridViewColumn Header="Type" Width="160">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding TypeName}" FontSize="12" Foreground="#CCCCCC" VerticalAlignment="Center"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                            <GridViewColumn Header="Connection" Width="100">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding ConnectionType}" FontSize="11" Foreground="#888888" VerticalAlignment="Center"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                            <GridViewColumn Header="Notifications" Width="100">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox IsChecked="{Binding EnableNotifications, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                            <GridViewColumn Header="Actions" Width="180">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                            <Button Content="Rename" Style="{StaticResource SecondaryButtonStyle}" Padding="8,4" Margin="2,0"
+                                                                    Command="{Binding DataContext.RenameSavedControllerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding DeviceId}" ToolTip="Rename this controller"/>
+                                                            <Button Content="Reset" Style="{StaticResource SecondaryButtonStyle}" Padding="8,4" Margin="2,0"
+                                                                    Command="{Binding DataContext.ResetSavedControllerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding DeviceId}" ToolTip="Reset to default name"
+                                                                    Visibility="{Binding HasCustomName, Converter={StaticResource BoolToVis}}"/>
+                                                            <Button Content="Remove" Style="{StaticResource DangerButtonStyle}" Padding="8,4" Margin="2,0"
+                                                                    Command="{Binding DataContext.RemoveSavedControllerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding DeviceId}" ToolTip="Remove saved profile"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                                <TextBlock x:Name="NoSavedControllersText" Text="No saved controller profiles yet. Controllers appear here after being detected." 
+                                           FontSize="12" Foreground="#666666" Margin="0,12,0,0" HorizontalAlignment="Center"
+                                           Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Border>
+                        
+                        <TextBlock Text="Hidden Controllers" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock Text="Controllers in this list will not appear in the dashboard." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <Border Background="#161616" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="16">
+                            <StackPanel>
+                                <ListView x:Name="HiddenControllersList" 
+                                          ItemsSource="{Binding HiddenControllers}" 
+                                          Background="Transparent" BorderThickness="0"
+                                          Height="150">
+                                    <ListView.Resources>
+                                        <Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Padding" Value="8,6"/>
+                                            <Setter Property="Margin" Value="0,2"/>
+                                        </Style>
+                                    </ListView.Resources>
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Controller" Width="350">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Name}" FontSize="12" Foreground="#CCCCCC"/>
+                                                            <TextBlock Text=" ({Binding TypeName})" FontSize="11" Foreground="#666666"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                            <GridViewColumn Header="Actions" Width="100">
+                                                <GridViewColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="Show" Style="{StaticResource SecondaryButtonStyle}" Padding="8,4"
+                                                                Command="{Binding DataContext.ShowHiddenControllerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding DeviceId}" ToolTip="Show this controller again"/>
+                                                    </DataTemplate>
+                                                </GridViewColumn.CellTemplate>
+                                            </GridViewColumn>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                                <TextBlock Text="No hidden controllers." FontSize="12" Foreground="#666666" Margin="0,12,0,0" HorizontalAlignment="Center"
+                                           Visibility="{Binding HiddenControllers.Count, Converter={StaticResource CountToVisibilityConverter}}"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Appearance Settings -->
+                    <StackPanel x:Name="AppearancePanel" Visibility="Collapsed">
+                        <TextBlock Text="Appearance" Style="{StaticResource PanelHeaderStyle}"/>
+                        <TextBlock Text="Theme and accent colour customisation coming in a future update." 
+                                   FontSize="12" Foreground="#888888" Margin="0,8"/>
+                        <TextBlock Text="Default: CROWN Dark (premium dark theme)" 
+                                   FontSize="12" Foreground="#CCCCCC" Margin="0,4"/>
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

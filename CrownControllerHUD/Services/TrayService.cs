@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -8,7 +10,6 @@ using System.Windows.Media;
 using CrownControllerHUD.Models;
 using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace CrownControllerHUD.Services
 {
@@ -18,6 +19,7 @@ namespace CrownControllerHUD.Services
         void ShowMainWindow();
         void HideMainWindow();
         void UpdateTrayIcon(ControllerInfo? primaryController = null);
+        void RefreshTrayMenu();
         void ShowBalloonTip(string title, string message, BalloonIcon icon = BalloonIcon.Info);
         event EventHandler? ShowWindowRequested;
         event EventHandler? ExitRequested;
@@ -105,6 +107,12 @@ namespace CrownControllerHUD.Services
             }
         }
 
+        public void RefreshTrayMenu()
+        {
+            if (!_initialized || _trayIcon == null) return;
+            CreateContextMenu();
+        }
+
         private void CreateContextMenu()
         {
             if (_trayIcon == null) return;
@@ -139,10 +147,30 @@ namespace CrownControllerHUD.Services
             sepStyle.Setters.Add(new Setter(Separator.HeightProperty, 1.0));
             menu.Resources.Add(typeof(Separator), sepStyle);
 
-            // Header
+            // Submenu item style (for controller entries)
+            var subItemStyle = new Style(typeof(MenuItem));
+            subItemStyle.Setters.Add(new Setter(MenuItem.BackgroundProperty, System.Windows.Media.Brushes.Transparent));
+            subItemStyle.Setters.Add(new Setter(MenuItem.ForegroundProperty, new SolidColorBrush(MediaColor(0xCC, 0xCC, 0xCC))));
+            subItemStyle.Setters.Add(new Setter(MenuItem.PaddingProperty, new Thickness(20, 5, 14, 5)));
+            subItemStyle.Setters.Add(new Setter(MenuItem.FontSizeProperty, 11.0));
+            subItemStyle.Setters.Add(new Setter(MenuItem.FontFamilyProperty, new System.Windows.Media.FontFamily("Segoe UI")));
+
+            var subHoverTrigger = new Trigger { Property = MenuItem.IsMouseOverProperty, Value = true };
+            subHoverTrigger.Setters.Add(new Setter(MenuItem.BackgroundProperty, new SolidColorBrush(MediaColor(0x25, 0x25, 0x25))));
+            subHoverTrigger.Setters.Add(new Setter(MenuItem.ForegroundProperty, System.Windows.Media.Brushes.White));
+            subItemStyle.Triggers.Add(subHoverTrigger);
+
+            menu.Resources.Add(typeof(MenuItem), subItemStyle);
+
+            // Header with controller count
+            var connectedControllers = _controllerManager.Controllers.Where(c => c.IsConnected).ToList();
+            var headerText = connectedControllers.Count > 0
+                ? $"CROWN Controller HUD — {connectedControllers.Count} connected"
+                : "CROWN Controller HUD — No controllers connected";
+
             var header = new MenuItem
             {
-                Header = "CROWN Controller HUD",
+                Header = headerText,
                 FontWeight = FontWeights.Bold,
                 FontSize = 12.0,
                 Foreground = new SolidColorBrush(MediaColor(0x00, 0x78, 0xD4)),
@@ -150,6 +178,28 @@ namespace CrownControllerHUD.Services
                 Padding = new Thickness(14, 8, 14, 8)
             };
             menu.Items.Add(header);
+
+            // Connected controllers submenu
+            if (connectedControllers.Count > 0)
+            {
+                foreach (var controller in connectedControllers.OrderBy(c => c.Name))
+                {
+                    var controllerItem = CreateControllerMenuItem(controller);
+                    menu.Items.Add(controllerItem);
+                }
+            }
+            else
+            {
+                var noControllersItem = new MenuItem
+                {
+                    Header = "  No controllers connected",
+                    Foreground = new SolidColorBrush(MediaColor(0x88, 0x88, 0x88)),
+                    FontStyle = FontStyles.Italic,
+                    IsEnabled = false,
+                    Padding = new Thickness(20, 5, 14, 5)
+                };
+                menu.Items.Add(noControllersItem);
+            }
 
             menu.Items.Add(new Separator());
 
@@ -174,7 +224,7 @@ namespace CrownControllerHUD.Services
                 try
                 {
                     var logger = Microsoft.Extensions.Logging.LoggerFactory.Create(b => { }).CreateLogger<SettingsWindow>();
-                    var settingsWindow = new SettingsWindow(_settingsService, _startupService, _notificationService, _controllerManager, logger);
+                    var settingsWindow = SettingsWindow.GetOrCreateInstance(_settingsService, _startupService, _notificationService, _controllerManager, logger);
                     settingsWindow.Show();
                     settingsWindow.Activate();
                 }
@@ -194,12 +244,13 @@ namespace CrownControllerHUD.Services
             menu.Items.Add(testNotifyItem);
 
             // Toggle Notifications
-            var toggleItem = new MenuItem { Header = "Toggle Notifications" };
+            var settings = _settingsService.Settings;
+            var toggleHeader = settings.Notifications.EnableNotifications ? "Disable Notifications" : "Enable Notifications";
+            var toggleItem = new MenuItem { Header = toggleHeader };
             toggleItem.Click += (s, e) =>
             {
                 try
                 {
-                    var settings = _settingsService.Settings;
                     settings.Notifications.EnableNotifications = !settings.Notifications.EnableNotifications;
                     _ = _settingsService.SaveAsync();
                     DiagnosticLogger.Info($"[Tray] Notifications {(settings.Notifications.EnableNotifications ? "enabled" : "disabled")}");
@@ -216,6 +267,95 @@ namespace CrownControllerHUD.Services
             menu.Items.Add(exitItem);
 
             _trayIcon.ContextMenu = menu;
+        }
+
+        private MenuItem CreateControllerMenuItem(ControllerInfo controller)
+        {
+            var parentItem = new MenuItem
+            {
+                Header = controller.DisplayName,
+                FontWeight = FontWeights.SemiBold,
+                IsEnabled = false,
+                Padding = new Thickness(14, 6, 14, 6)
+            };
+
+            // Type and connection
+            var typeItem = new MenuItem
+            {
+                Header = $"  {controller.Type.GetDisplayName()} — {controller.ConnectionType}",
+                Foreground = new SolidColorBrush(MediaColor(0xAA, 0xAA, 0xAA)),
+                IsEnabled = false,
+                Padding = new Thickness(24, 4, 14, 4)
+            };
+            parentItem.Items.Add(typeItem);
+
+            // Battery
+            string batteryText;
+            if (controller.BatteryPercentage.HasValue)
+            {
+                batteryText = $"  Battery: {controller.BatteryPercentage}%";
+                if (controller.BatteryIsStale)
+                    batteryText += " (stale)";
+                if (controller.BatterySupportsPercentage == false)
+                    batteryText += " (categorical)";
+            }
+            else
+            {
+                batteryText = "  Battery: Unknown";
+            }
+
+            var batteryItem = new MenuItem
+            {
+                Header = batteryText,
+                Foreground = new SolidColorBrush(MediaColor(0x88, 0x88, 0x88)),
+                IsEnabled = false,
+                Padding = new Thickness(24, 4, 14, 4)
+            };
+            parentItem.Items.Add(batteryItem);
+
+            // Charging status (only if verified)
+            if (controller.BatterySupportsCharging)
+            {
+                var chargingText = controller.IsCharging ? "  ⚡ Charging" : "  Not charging";
+                var chargingItem = new MenuItem
+                {
+                    Header = chargingText,
+                    Foreground = controller.IsCharging 
+                        ? new SolidColorBrush(MediaColor(0xFF, 0xD7, 0x00))
+                        : new SolidColorBrush(MediaColor(0x88, 0x88, 0x88)),
+                    IsEnabled = false,
+                    Padding = new Thickness(24, 4, 14, 4)
+                };
+                parentItem.Items.Add(chargingItem);
+            }
+            else if (controller.IsCharging)
+            {
+                // Charging reported but not verified
+                var chargingItem = new MenuItem
+                {
+                    Header = "  ⚡ Charging (unverified)",
+                    Foreground = new SolidColorBrush(MediaColor(0xFF, 0xD7, 0x00)),
+                    IsEnabled = false,
+                    Padding = new Thickness(24, 4, 14, 4)
+                };
+                parentItem.Items.Add(chargingItem);
+            }
+
+            // Last seen
+            if (controller.LastSeen.HasValue)
+            {
+                var lastSeenItem = new MenuItem
+                {
+                    Header = $"  Last seen: {controller.LastSeen.Value:HH:mm:ss}",
+                    Foreground = new SolidColorBrush(MediaColor(0x66, 0x66, 0x66)),
+                    IsEnabled = false,
+                    Padding = new Thickness(24, 4, 14, 4),
+                    FontSize = 10.0
+                };
+                parentItem.Items.Add(lastSeenItem);
+            }
+
+            return parentItem;
         }
 
         // Helper aliases for WPF media types

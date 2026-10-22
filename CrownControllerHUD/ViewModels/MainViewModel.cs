@@ -90,6 +90,9 @@ namespace CrownControllerHUD.ViewModels
         public ICommand ShowDiagnosticsCommand { get; }
         public ICommand OpenLogCommand { get; }
         public ICommand CopyDiagnosticsCommand { get; }
+        public ICommand RenameControllerCommand { get; }
+        public ICommand ResetControllerNameCommand { get; }
+        public ICommand CopyDeviceIdCommand { get; }
 
         public MainViewModel(
             IControllerManager controllerManager,
@@ -120,6 +123,9 @@ namespace CrownControllerHUD.ViewModels
             ShowDiagnosticsCommand = new RelayCommand(() => ShowDiagnostics = !ShowDiagnostics);
             OpenLogCommand = new RelayCommand(() => OpenLog());
             CopyDiagnosticsCommand = new RelayCommand(() => CopyDiagnosticsToClipboard());
+            RenameControllerCommand = new RelayCommand<ControllerViewModel>(vm => RenameController(vm));
+            ResetControllerNameCommand = new RelayCommand<ControllerViewModel>(vm => ResetControllerName(vm));
+            CopyDeviceIdCommand = new RelayCommand<string>(id => CopyDeviceId(id));
 
             SubscribeToEvents();
             UpdateSystemInfo();
@@ -236,6 +242,7 @@ namespace CrownControllerHUD.ViewModels
             {
                 UpdateControllers(e.Controllers);
                 UpdateProviderDiagnostics();
+                _trayService.RefreshTrayMenu();
             });
         }
 
@@ -262,6 +269,7 @@ namespace CrownControllerHUD.ViewModels
                 }
 
                 _trayService.UpdateTrayIcon(GetPrimaryController());
+                _trayService.RefreshTrayMenu();
                 StatusText = $"{e.Controller.Type.GetDisplayName()} connected ({e.Controller.ConnectionType}) at {DateTime.Now:HH:mm:ss}";
                 UpdateProviderDiagnostics();
             });
@@ -288,6 +296,7 @@ namespace CrownControllerHUD.ViewModels
                 }
 
                 _trayService.UpdateTrayIcon(GetPrimaryController());
+                _trayService.RefreshTrayMenu();
                 StatusText = $"{e.Controller.Type.GetDisplayName()} disconnected at {DateTime.Now:HH:mm:ss}";
                 UpdateProviderDiagnostics();
             });
@@ -417,7 +426,7 @@ namespace CrownControllerHUD.ViewModels
                 var controllerManager = App.ServiceProvider?.GetService(typeof(IControllerManager)) as IControllerManager;
                 var logger = App.ServiceProvider?.GetService(typeof(ILogger<SettingsWindow>)) as ILogger<SettingsWindow>;
 
-                var settingsWindow = new SettingsWindow(settingsService!, startupService!, notificationService!, controllerManager!, logger!);
+                var settingsWindow = SettingsWindow.GetOrCreateInstance(settingsService!, startupService!, notificationService!, controllerManager!, logger!);
                 settingsWindow.Show();
                 settingsWindow.Activate();
             }
@@ -521,6 +530,58 @@ namespace CrownControllerHUD.ViewModels
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to copy diagnostics");
+                StatusText = "Copy failed: " + ex.Message;
+            }
+        }
+
+        private void RenameController(ControllerViewModel? vm)
+        {
+            if (vm == null) return;
+            
+            // This will be invoked from the UI with a text input dialog
+            // The actual rename logic is handled by the window code-behind
+            // which has access to the text input dialog
+            _logger.LogInformation($"Rename requested for controller: {vm.DeviceId} (current: {vm.CustomName ?? "none"})");
+        }
+
+        private void ResetControllerName(ControllerViewModel? vm)
+        {
+            if (vm == null) return;
+
+            var deviceId = vm.DeviceId;
+            var settings = _settingsService.Settings;
+
+            // Remove the custom name from overrides
+            if (settings.Controllers.Overrides.TryGetValue(deviceId, out var overrideSettings))
+            {
+                overrideSettings.CustomName = string.Empty;
+                _ = _settingsService.SaveAsync();
+                _logger.LogInformation($"Reset custom name for controller: {deviceId}");
+            }
+
+            // Also clear it from the live controller object
+            var controller = _controllerManager.GetController(deviceId);
+            if (controller != null)
+            {
+                controller.CustomName = null;
+                // Refresh the UI
+                var vmToUpdate = Controllers.FirstOrDefault(c => c.DeviceId == deviceId);
+                vmToUpdate?.Update(controller);
+            }
+        }
+
+        private void CopyDeviceId(string? deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return;
+            
+            try
+            {
+                Clipboard.SetText(deviceId);
+                StatusText = "Device ID copied to clipboard";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to copy device ID");
                 StatusText = "Copy failed: " + ex.Message;
             }
         }
@@ -647,7 +708,26 @@ namespace CrownControllerHUD.ViewModels
 
         public ControllerInfo Info => _info;
 
-        public string Name => _info.Type.GetDisplayName();
+        /// <summary>
+        /// The display name - uses CustomName if set, otherwise falls back to the detected type name.
+        /// </summary>
+        public string Name => _info.DisplayName;
+
+        /// <summary>
+        /// The detected controller type name (e.g., "Xbox Elite Series 2"), without custom nickname.
+        /// </summary>
+        public string TypeName => _info.Type.GetDisplayName();
+
+        /// <summary>
+        /// The user-defined custom name, or null if not set.
+        /// </summary>
+        public string? CustomName => _info.CustomName;
+
+        /// <summary>
+        /// True if this controller has a custom nickname assigned.
+        /// </summary>
+        public bool HasCustomName => !string.IsNullOrWhiteSpace(_info.CustomName);
+
         public string ConnectionType => _info.ConnectionType.ToString();
         public string BatteryText => _info.BatteryPercentage.HasValue ? $"{_info.BatteryPercentage}%" : "Unknown";
         public string BatteryStateText => _info.BatteryState.ToString();
@@ -707,6 +787,9 @@ namespace CrownControllerHUD.ViewModels
         {
             _info = info;
             OnPropertyChanged(nameof(Name));
+            OnPropertyChanged(nameof(TypeName));
+            OnPropertyChanged(nameof(CustomName));
+            OnPropertyChanged(nameof(HasCustomName));
             OnPropertyChanged(nameof(ConnectionType));
             OnPropertyChanged(nameof(BatteryText));
             OnPropertyChanged(nameof(BatteryStateText));
@@ -743,6 +826,41 @@ namespace CrownControllerHUD.ViewModels
         public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
 
         public void Execute(object? parameter) => _execute();
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+    }
+
+    public class RelayCommand<T> : ICommand
+    {
+        private readonly Action<T?> _execute;
+        private readonly Func<T?, bool>? _canExecute;
+
+        public RelayCommand(Action<T?> execute, Func<T?, bool>? canExecute = null)
+        {
+            _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+            _canExecute = canExecute;
+        }
+
+        public bool CanExecute(object? parameter)
+        {
+            if (parameter is T typedParam)
+                return _canExecute?.Invoke(typedParam) ?? true;
+            if (parameter == null && default(T) == null)
+                return _canExecute?.Invoke(default) ?? true;
+            return false;
+        }
+
+        public void Execute(object? parameter)
+        {
+            if (parameter is T typedParam)
+                _execute(typedParam);
+            else if (parameter == null && default(T) == null)
+                _execute(default!);
+        }
 
         public event EventHandler? CanExecuteChanged
         {

@@ -277,14 +277,8 @@ namespace CrownControllerHUD
             return Host.CreateDefaultBuilder(args)
                 .ConfigureServices((context, services) =>
                 {
-                    // Configuration - use built-in options
-                    // NOTE: AddOptions<T>() already registers IOptions<T>, IOptionsSnapshot<T>
-                    // and IOptionsMonitor<T>. Do NOT re-register IOptionsMonitor<T> pointing at
-                    // itself: that factory recurses into the container forever and deadlocks
-                    // service resolution on the UI thread before any window is created.
-                    services.AddOptions<AppSettings>();
-
-                    // Settings
+                    // Settings - single source of truth for all settings.
+                    // SettingsService implements ISettingsService. All services read from it.
                     services.AddSingleton<ISettingsService, SettingsService>();
 
                     // Controller Detection

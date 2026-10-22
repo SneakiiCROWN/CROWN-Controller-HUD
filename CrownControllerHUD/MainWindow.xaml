@@ -217,14 +217,33 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Border Width="64" Height="64" CornerRadius="10" Background="#2A2A2A">
                                 <TextBlock Text="{Binding SelectedController.Info.Type, Converter={StaticResource ControllerTypeToIconConverter}}" 
                                            FontSize="32" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding SelectedController.Name}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding SelectedController.Name}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
+                                        <Button Content="✏" Style="{StaticResource GhostButtonStyle}" Padding="6,2" Margin="0,0,4,0"
+                                                ToolTip="Rename controller"
+                                                Command="{Binding RenameControllerCommand}" CommandParameter="{Binding SelectedController}"
+                                                Visibility="{Binding SelectedController, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                        <Button Content="↩" Style="{StaticResource GhostButtonStyle}" Padding="6,2"
+                                                ToolTip="Reset to default name"
+                                                Command="{Binding ResetControllerNameCommand}" CommandParameter="{Binding SelectedController}"
+                                                Visibility="{Binding SelectedController.HasCustomName, Converter={StaticResource BoolToVis}}"/>
+                                    </StackPanel>
+                                </Grid>
                                 <TextBlock Text="{Binding SelectedController.ConnectionType}" FontSize="12" Foreground="#888888"/>
+                                <TextBlock x:Name="TypeNameText" Text="{Binding SelectedController.TypeName}" FontSize="11" Foreground="#666666" 
+                                           Visibility="{Binding SelectedController.HasCustomName, Converter={StaticResource BoolToVis}}"/>
                             </StackPanel>
                         </Grid>
                     </Border>

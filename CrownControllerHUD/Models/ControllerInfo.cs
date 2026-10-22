@@ -71,6 +71,18 @@ namespace CrownControllerHUD.Models
         public string DeviceId { get; set; } = string.Empty;
         public string InstanceId { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
+        
+        /// <summary>
+        /// User-defined nickname for this controller. When set, this takes precedence
+        /// over the detected Name in all UI displays. Persisted in ControllerSettings.Overrides.
+        /// </summary>
+        public string? CustomName { get; set; }
+        
+        /// <summary>
+        /// The effective display name - returns CustomName if set, otherwise Name.
+        /// </summary>
+        public string DisplayName => !string.IsNullOrWhiteSpace(CustomName) ? CustomName : Name;
+
         public ControllerType Type { get; set; } = ControllerType.Unknown;
         public ConnectionType ConnectionType { get; set; } = ConnectionType.Unknown;
         public bool IsConnected { get; set; }

@@ -6,7 +6,6 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using CrownControllerHUD.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace CrownControllerHUD.Services
 {
@@ -67,17 +66,17 @@ namespace CrownControllerHUD.Services
         private const double GapDip = 10;
 
         private readonly ILogger<CrownNotificationRenderer> _logger;
-        private readonly IOptionsMonitor<AppSettings> _settings;
+        private readonly ISettingsService _settingsService;
         private readonly List<CrownNotificationWindow> _open = new();
         private int _nextCardId = 1;
         private bool _disposed;
 
         public CrownNotificationRenderer(
             ILogger<CrownNotificationRenderer> logger,
-            IOptionsMonitor<AppSettings> settings)
+            ISettingsService settingsService)
         {
             _logger = logger;
-            _settings = settings;
+            _settingsService = settingsService;
         }
 
         public bool IsAvailable => Application.Current != null;

@@ -491,6 +491,19 @@ namespace CrownControllerHUD.Services
                             if (controller.ConnectedAt == default) controller.ConnectedAt = previous.ConnectedAt;
                             controller.ConnectionStateChangedAt ??= previous.ConnectionStateChangedAt;
                             controller.LastSeen ??= previous.LastSeen;
+                            
+                            // Preserve custom name from previous detection
+                            if (!string.IsNullOrWhiteSpace(previous.CustomName))
+                                controller.CustomName = previous.CustomName;
+                        }
+                        else
+                        {
+                            // New controller - apply custom name from settings overrides
+                            var overrides = _settingsService.Settings.Controllers.Overrides;
+                            if (overrides.TryGetValue(controller.DeviceId, out var overrideSettings))
+                            {
+                                controller.CustomName = overrideSettings.CustomName;
+                            }
                         }
 
                         _controllers[controller.DeviceId] = controller;
