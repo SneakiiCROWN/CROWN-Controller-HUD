@@ -50,13 +50,13 @@ namespace CrownControllerHUD.Services
         /// <see cref="ILiveConnectionMonitor.StateChanged"/>; this poll guarantees eventual
         /// convergence even if an OS event is missed.
         /// </summary>
-        private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
 
         /// <summary>
         /// A state must stay unchanged this long before it is reported, so a brief glitch in
         /// a signal can never produce a spurious notification (debouncing).
         /// </summary>
-        private static readonly TimeSpan DebounceWindow = TimeSpan.FromMilliseconds(800);
+        private static readonly TimeSpan DebounceWindow = TimeSpan.FromMilliseconds(300);
 
         private readonly ILogger<ControllerManager> _logger;
         private readonly IOptionsMonitor<AppSettings> _settings;
