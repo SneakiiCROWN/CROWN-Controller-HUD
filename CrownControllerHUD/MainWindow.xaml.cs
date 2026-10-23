@@ -77,7 +77,7 @@ namespace CrownControllerHUD
             if (WindowState == WindowState.Minimized && _trayService != null)
             {
                 Hide();
-                _trayService.ShowBalloonTip("CROWN Controller HUD", "Running in background", BalloonIcon.Info);
+                // No balloon tip - CROWN starts quietly
             }
         }
 
@@ -91,7 +91,7 @@ namespace CrownControllerHUD
             {
                 e.Cancel = true;
                 Hide();
-                _trayService.ShowBalloonTip("CROWN Controller HUD", "Still running in tray", BalloonIcon.Info);
+                // No balloon tip - CROWN runs quietly in background
             }
             else
             {

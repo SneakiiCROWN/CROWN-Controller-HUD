@@ -6,7 +6,9 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
+using System.Xml;
 using CrownControllerHUD.Models;
 using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.Logging;
@@ -124,7 +126,7 @@ namespace CrownControllerHUD.Services
             menu.Padding = new Thickness(2);
             menu.HasDropShadow = true;
 
-            // Item style
+            // Custom MenuItem style that removes the icon/checkmark gutter
             var itemStyle = new Style(typeof(MenuItem));
             itemStyle.Setters.Add(new Setter(MenuItem.BackgroundProperty, System.Windows.Media.Brushes.Transparent));
             itemStyle.Setters.Add(new Setter(MenuItem.ForegroundProperty, new SolidColorBrush(MediaColor(0xDD, 0xDD, 0xDD))));
@@ -132,11 +134,16 @@ namespace CrownControllerHUD.Services
             itemStyle.Setters.Add(new Setter(MenuItem.FontSizeProperty, 12.0));
             itemStyle.Setters.Add(new Setter(MenuItem.FontFamilyProperty, new System.Windows.Media.FontFamily("Segoe UI")));
             itemStyle.Setters.Add(new Setter(MenuItem.CursorProperty, Cursors.Hand));
+            itemStyle.Setters.Add(new Setter(MenuItem.TemplateProperty, CreateMenuItemTemplate()));
 
             var hoverTrigger = new Trigger { Property = MenuItem.IsMouseOverProperty, Value = true };
             hoverTrigger.Setters.Add(new Setter(MenuItem.BackgroundProperty, new SolidColorBrush(MediaColor(0x2A, 0x2A, 0x2A))));
             hoverTrigger.Setters.Add(new Setter(MenuItem.ForegroundProperty, System.Windows.Media.Brushes.White));
             itemStyle.Triggers.Add(hoverTrigger);
+
+            var disabledTrigger = new Trigger { Property = MenuItem.IsEnabledProperty, Value = false };
+            disabledTrigger.Setters.Add(new Setter(MenuItem.ForegroundProperty, new SolidColorBrush(MediaColor(0x66, 0x66, 0x66))));
+            itemStyle.Triggers.Add(disabledTrigger);
 
             menu.Resources.Add(typeof(MenuItem), itemStyle);
 
@@ -146,21 +153,6 @@ namespace CrownControllerHUD.Services
             sepStyle.Setters.Add(new Setter(Separator.MarginProperty, new Thickness(8, 2, 8, 2)));
             sepStyle.Setters.Add(new Setter(Separator.HeightProperty, 1.0));
             menu.Resources.Add(typeof(Separator), sepStyle);
-
-            // Submenu item style (for controller entries)
-            var subItemStyle = new Style(typeof(MenuItem));
-            subItemStyle.Setters.Add(new Setter(MenuItem.BackgroundProperty, System.Windows.Media.Brushes.Transparent));
-            subItemStyle.Setters.Add(new Setter(MenuItem.ForegroundProperty, new SolidColorBrush(MediaColor(0xCC, 0xCC, 0xCC))));
-            subItemStyle.Setters.Add(new Setter(MenuItem.PaddingProperty, new Thickness(20, 5, 14, 5)));
-            subItemStyle.Setters.Add(new Setter(MenuItem.FontSizeProperty, 11.0));
-            subItemStyle.Setters.Add(new Setter(MenuItem.FontFamilyProperty, new System.Windows.Media.FontFamily("Segoe UI")));
-
-            var subHoverTrigger = new Trigger { Property = MenuItem.IsMouseOverProperty, Value = true };
-            subHoverTrigger.Setters.Add(new Setter(MenuItem.BackgroundProperty, new SolidColorBrush(MediaColor(0x25, 0x25, 0x25))));
-            subHoverTrigger.Setters.Add(new Setter(MenuItem.ForegroundProperty, System.Windows.Media.Brushes.White));
-            subItemStyle.Triggers.Add(subHoverTrigger);
-
-            menu.Resources.Add(typeof(MenuItem), subItemStyle);
 
             // Header with controller count
             var connectedControllers = _controllerManager.Controllers.Where(c => c.IsConnected).ToList();
@@ -364,6 +356,44 @@ namespace CrownControllerHUD.Services
 
         private static System.Windows.Media.FontFamily MediaFontFamily(string name) =>
             new System.Windows.Media.FontFamily(name);
+
+        /// <summary>
+        /// Creates a MenuItem ControlTemplate without the icon/checkmark gutter column.
+        /// This eliminates the white strip on the left side of the context menu.
+        /// Uses XamlReader to parse a template string to avoid FrameworkElementFactory issues.
+        /// </summary>
+        private ControlTemplate CreateMenuItemTemplate()
+        {
+            const string templateXaml = @"
+<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' 
+                 TargetType='MenuItem'>
+    <Border x:Name='Border' 
+            Background='Transparent' 
+            BorderBrush='Transparent' 
+            BorderThickness='0' 
+            CornerRadius='4' 
+            Padding='14,7,14,7' 
+            SnapsToDevicePixels='True'>
+        <ContentPresenter ContentSource='Header' 
+                          RecognizesAccessKey='True' 
+                          HorizontalAlignment='Left' 
+                          VerticalAlignment='Center' />
+    </Border>
+    <ControlTemplate.Triggers>
+        <Trigger Property='IsMouseOver' Value='True'>
+            <Setter TargetName='Border' Property='Background' Value='#2A2A2A' />
+            <Setter Property='Foreground' Value='White' />
+        </Trigger>
+        <Trigger Property='IsEnabled' Value='False'>
+            <Setter Property='Foreground' Value='#666666' />
+        </Trigger>
+    </ControlTemplate.Triggers>
+</ControlTemplate>";
+
+            using var stream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(templateXaml));
+            using var xmlReader = System.Xml.XmlReader.Create(stream);
+            return (ControlTemplate)System.Windows.Markup.XamlReader.Load(xmlReader);
+        }
 
         private System.Drawing.Icon CreateDefaultIcon()
         {

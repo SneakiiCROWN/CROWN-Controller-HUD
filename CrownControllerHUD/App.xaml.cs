@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Windows;
+using System.Windows.Media;
 using CrownControllerHUD.Models;
 using CrownControllerHUD.Services;
 using CrownControllerHUD.ViewModels;
@@ -345,10 +346,99 @@ namespace CrownControllerHUD
                 });
         }
 
-        private void ApplyTheme(string theme)
+        public void ApplyTheme(string theme)
         {
-            // Theme application logic would go here
-            // For now, we use the dark theme defined in resources
+            var dictionaries = Application.Current.Resources.MergedDictionaries;
+            var colorsDict = dictionaries.OfType<ResourceDictionary>().FirstOrDefault(d => d.Source?.OriginalString.Contains("Colors.xaml") == true);
+            
+            if (colorsDict == null) return;
+
+            switch (theme)
+            {
+                case "Light":
+                    ApplyLightTheme(colorsDict);
+                    break;
+                case "System":
+                    // Follow system theme
+                    var isSystemDark = SystemParameters.HighContrast; // Simplified - in real app, use Windows 10+ API
+                    if (isSystemDark)
+                        ApplyDarkTheme(colorsDict);
+                    else
+                        ApplyLightTheme(colorsDict);
+                    break;
+                case "Dark":
+                default:
+                    ApplyDarkTheme(colorsDict);
+                    break;
+            }
+        }
+
+        private void ApplyDarkTheme(ResourceDictionary colorsDict)
+        {
+            colorsDict["BackgroundPrimary"] = (Color)ColorConverter.ConvertFromString("#1A1A1A");
+            colorsDict["BackgroundSecondary"] = (Color)ColorConverter.ConvertFromString("#1F1F1F");
+            colorsDict["BackgroundTertiary"] = (Color)ColorConverter.ConvertFromString("#252525");
+            colorsDict["BackgroundHover"] = (Color)ColorConverter.ConvertFromString("#2A2A2A");
+            colorsDict["BackgroundPressed"] = (Color)ColorConverter.ConvertFromString("#333333");
+            colorsDict["BorderPrimary"] = (Color)ColorConverter.ConvertFromString("#333333");
+            colorsDict["BorderSecondary"] = (Color)ColorConverter.ConvertFromString("#2D2D2D");
+            colorsDict["TextPrimary"] = (Color)ColorConverter.ConvertFromString("#FFFFFF");
+            colorsDict["TextSecondary"] = (Color)ColorConverter.ConvertFromString("#CCCCCC");
+            colorsDict["TextMuted"] = (Color)ColorConverter.ConvertFromString("#888888");
+            colorsDict["TextDisabled"] = (Color)ColorConverter.ConvertFromString("#555555");
+        }
+
+        private void ApplyLightTheme(ResourceDictionary colorsDict)
+        {
+            colorsDict["BackgroundPrimary"] = (Color)ColorConverter.ConvertFromString("#F3F3F3");
+            colorsDict["BackgroundSecondary"] = (Color)ColorConverter.ConvertFromString("#FFFFFF");
+            colorsDict["BackgroundTertiary"] = (Color)ColorConverter.ConvertFromString("#E8E8E8");
+            colorsDict["BackgroundHover"] = (Color)ColorConverter.ConvertFromString("#E0E0E0");
+            colorsDict["BackgroundPressed"] = (Color)ColorConverter.ConvertFromString("#D0D0D0");
+            colorsDict["BorderPrimary"] = (Color)ColorConverter.ConvertFromString("#CCCCCC");
+            colorsDict["BorderSecondary"] = (Color)ColorConverter.ConvertFromString("#DDDDDD");
+            colorsDict["TextPrimary"] = (Color)ColorConverter.ConvertFromString("#1A1A1A");
+            colorsDict["TextSecondary"] = (Color)ColorConverter.ConvertFromString("#333333");
+            colorsDict["TextMuted"] = (Color)ColorConverter.ConvertFromString("#666666");
+            colorsDict["TextDisabled"] = (Color)ColorConverter.ConvertFromString("#999999");
+        }
+
+        public void UpdateAccentColor(string hexColor)
+        {
+            var dictionaries = Application.Current.Resources.MergedDictionaries;
+            var colorsDict = dictionaries.OfType<ResourceDictionary>().FirstOrDefault(d => d.Source?.OriginalString.Contains("Colors.xaml") == true);
+            
+            if (colorsDict == null) return;
+
+            try
+            {
+                var color = (Color)ColorConverter.ConvertFromString(hexColor);
+                colorsDict["AccentPrimary"] = color;
+                
+                // Generate hover/pressed variants
+                var hoverColor = LightenColor(color, 0.15);
+                var pressedColor = DarkenColor(color, 0.15);
+                
+                colorsDict["AccentPrimaryHover"] = hoverColor;
+                colorsDict["AccentPrimaryPressed"] = pressedColor;
+            }
+            catch { }
+        }
+
+        private Color LightenColor(Color color, double factor)
+        {
+            var r = (byte)Math.Min(255, color.R + (255 - color.R) * factor);
+            var g = (byte)Math.Min(255, color.G + (255 - color.G) * factor);
+            var b = (byte)Math.Min(255, color.B + (255 - color.B) * factor);
+            return Color.FromRgb(r, g, b);
+        }
+
+        private Color DarkenColor(Color color, double factor)
+        {
+            var r = (byte)Math.Max(0, color.R * (1 - factor));
+            var g = (byte)Math.Max(0, color.G * (1 - factor));
+            var b = (byte)Math.Max(0, color.B * (1 - factor));
+            return Color.FromRgb(r, g, b);
         }
 
         private void ActivateExistingInstance()

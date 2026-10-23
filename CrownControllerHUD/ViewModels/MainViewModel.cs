@@ -93,6 +93,21 @@ namespace CrownControllerHUD.ViewModels
         public ICommand RenameControllerCommand { get; }
         public ICommand ResetControllerNameCommand { get; }
         public ICommand CopyDeviceIdCommand { get; }
+        
+        public string AppVersion { get; } = GetAppVersion();
+
+        private static string GetAppVersion()
+        {
+            try
+            {
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                var ver = asm.GetName().Version;
+                return $"v{ver?.Major}.{ver?.Minor}.{ver?.Build}";
+            }
+            catch { return "v1.0.0"; }
+        }
+
+        public System.Collections.ObjectModel.ObservableCollection<HeaderAction> HeaderActions { get; } = new();
 
         public MainViewModel(
             IControllerManager controllerManager,
@@ -117,7 +132,7 @@ namespace CrownControllerHUD.ViewModels
                 {
                     window.Hide();
                 }
-                _trayService.ShowBalloonTip("CROWN Controller HUD", "Running in background", BalloonIcon.Info);
+                // No balloon tip - CROWN starts quietly
             });
             TestNotificationCommand = new AsyncRelayCommand(async () => await TestNotificationAsync());
             ShowDiagnosticsCommand = new RelayCommand(() => ShowDiagnostics = !ShowDiagnostics);
@@ -126,6 +141,13 @@ namespace CrownControllerHUD.ViewModels
             RenameControllerCommand = new RelayCommand<ControllerViewModel>(vm => RenameController(vm));
             ResetControllerNameCommand = new RelayCommand<ControllerViewModel>(vm => ResetControllerName(vm));
             CopyDeviceIdCommand = new RelayCommand<string>(id => CopyDeviceId(id));
+
+            // Header actions
+            HeaderActions.Add(new HeaderAction { Content = "Refresh", Command = RefreshCommand, ToolTip = "Refresh controller detection" });
+            HeaderActions.Add(new HeaderAction { Content = "Test", Command = TestNotificationCommand, ToolTip = "Send a test notification" });
+            HeaderActions.Add(new HeaderAction { Content = "Diagnostics", Command = ShowDiagnosticsCommand, ToolTip = "Show provider diagnostics and errors" });
+            HeaderActions.Add(new HeaderAction { Content = "Settings", Command = SettingsCommand, ToolTip = "Open settings" });
+            HeaderActions.Add(new HeaderAction { Content = "Minimize to Tray", Command = MinimizeToTrayCommand, ToolTip = "Minimize to system tray" });
 
             SubscribeToEvents();
             UpdateSystemInfo();
@@ -396,6 +418,17 @@ namespace CrownControllerHUD.ViewModels
             }
 
             ConnectedCount = Controllers.Count(c => c.Info.IsConnected);
+
+            // Auto-select sole connected controller
+            var connectedControllers = Controllers.Where(c => c.Info.IsConnected).ToList();
+            if (connectedControllers.Count == 1 && SelectedController != connectedControllers[0])
+            {
+                SelectedController = connectedControllers[0];
+            }
+            else if (connectedControllers.Count == 0)
+            {
+                SelectedController = null;
+            }
         }
 
         private void UpdateControllerInList(ControllerInfo controller)
@@ -906,5 +939,20 @@ namespace CrownControllerHUD.ViewModels
             add => CommandManager.RequerySuggested += value;
             remove => CommandManager.RequerySuggested -= value;
         }
+    }
+
+    public class HeaderAction : INotifyPropertyChanged
+    {
+        private string _content = string.Empty;
+        private ICommand? _command;
+        private string _toolTip = string.Empty;
+
+        public string Content { get => _content; set { _content = value; OnPropertyChanged(); } }
+        public ICommand? Command { get => _command; set { _command = value; OnPropertyChanged(); } }
+        public string ToolTip { get => _toolTip; set { _toolTip = value; OnPropertyChanged(); } }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

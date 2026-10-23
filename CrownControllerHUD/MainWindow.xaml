@@ -41,48 +41,46 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="#1F1F1F" BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="20,16">
+        <!-- Header - responsive layout using Grid with shared size groups -->
+        <Border Grid.Row="0" Background="#1F1F1F" BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="16,12">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HeaderLeft"/>
+                    <ColumnDefinition Width="*" MinWidth="200"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HeaderRight"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Logo/Title -->
+                <!-- Logo/Title - compact, no duplicate branding -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="CROWN" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <StackPanel>
-                        <TextBlock Text="CROWN Controller HUD" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF" FontFamily="Oxanium"/>
-                        <TextBlock Text="Professional Gaming Controller Companion" FontSize="11" Foreground="#888888" FontFamily="Segoe UI"/>
+                    <TextBlock Text="👑" FontSize="20" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="CROWN Controller HUD" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" FontFamily="Oxanium"/>
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Status -->
+                <!-- Status - centered, truncates gracefully -->
                 <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
-                    <Ellipse x:Name="StatusIndicator" Width="10" Height="10" Fill="#4CAF50" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="StatusText" Text="{Binding StatusText}" FontSize="13" Foreground="#CCCCCC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="380"/>
+                    <Ellipse x:Name="StatusIndicator" Width="8" Height="8" Fill="#4CAF50" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StatusText" Text="{Binding StatusText}" FontSize="12" Foreground="#CCCCCC" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="400"/>
                 </StackPanel>
 
-                <!-- Actions -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button Content="Refresh" Command="{Binding RefreshCommand}" 
-                            Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0"
-                            Padding="16,8" FontSize="12" ToolTip="Refresh controller detection"/>
-                    <Button Content="Test Notification" Command="{Binding TestNotificationCommand}" 
-                            Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"
-                            Padding="16,8" FontSize="12" ToolTip="Send a test notification to verify notification system"/>
-                    <Button Content="Diagnostics" Command="{Binding ShowDiagnosticsCommand}" 
-                            Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0"
-                            Padding="16,8" FontSize="12" ToolTip="Show provider diagnostics and errors"/>
-                    <Button Content="? Settings" Command="{Binding SettingsCommand}" 
-                            Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0"
-                            Padding="16,8" FontSize="12"/>
-                    <Button Content="? Minimize to Tray" Command="{Binding MinimizeToTrayCommand}" 
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Padding="16,8" FontSize="12"/>
-                </StackPanel>
+                <!-- Actions - right aligned, wraps if needed -->
+                <ItemsControl Grid.Column="2" ItemsSource="{Binding HeaderActions}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding Content}" 
+                                    Command="{Binding Command}" 
+                                    Style="{StaticResource SecondaryButtonStyle}" 
+                                    Margin="6,0,0,0" Padding="12,6" FontSize="11"
+                                    ToolTip="{Binding ToolTip}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </Grid>
         </Border>
 
@@ -432,7 +430,7 @@
                     <Ellipse x:Name="BLEStatus" Width="8" Height="8" Fill="#4CAF50" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <TextBlock Grid.Column="2" Text="v1.0.0" FontSize="11" Foreground="#555555" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding AppVersion}" FontSize="11" Foreground="#555555" VerticalAlignment="Center"/>
             </Grid>
         </Border>
 

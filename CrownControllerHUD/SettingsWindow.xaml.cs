@@ -431,6 +431,7 @@ namespace CrownControllerHUD
             else
                 SetComboBoxSelection(ThemeSelector, GetComboBoxSelection(AppearanceThemeSelector) ?? "Dark");
             SaveSettings();
+            ApplyCurrentTheme();
         }
 
         private void AppearanceThemeSelector_Changed(object sender, SelectionChangedEventArgs e)
@@ -438,6 +439,16 @@ namespace CrownControllerHUD
             if (_isLoading) return;
             SetComboBoxSelection(ThemeSelector, GetComboBoxSelection(AppearanceThemeSelector) ?? "Dark");
             SaveSettings();
+            ApplyCurrentTheme();
+        }
+
+        private void ApplyCurrentTheme()
+        {
+            if (Application.Current is App app)
+            {
+                var theme = GetComboBoxSelection(ThemeSelector) ?? GetComboBoxSelection(AppearanceThemeSelector) ?? "Dark";
+                app.ApplyTheme(theme);
+            }
         }
 
         private void NotificationPosition_Changed(object sender, SelectionChangedEventArgs e)
@@ -460,9 +471,20 @@ namespace CrownControllerHUD
             {
                 CustomColorPanel.Visibility = Visibility.Collapsed;
                 if (!string.IsNullOrEmpty(color))
+                {
                     UpdateAccentColorPreview(color);
+                    ApplyAccentColor(color);
+                }
             }
             SaveSettings();
+        }
+
+        private void ApplyAccentColor(string hexColor)
+        {
+            if (Application.Current is App app)
+            {
+                app.UpdateAccentColor(hexColor);
+            }
         }
 
         private void ApplyCustomColor_Click(object sender, RoutedEventArgs e)

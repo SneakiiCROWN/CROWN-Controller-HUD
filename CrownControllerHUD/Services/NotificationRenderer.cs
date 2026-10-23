@@ -197,9 +197,9 @@ namespace CrownControllerHUD.Services
         }
 
         /// <summary>
-        /// Places every open card bottom-right on the target monitor, newest at the
-        /// bottom and older cards pushed upwards. Position is applied in physical
-        /// pixels so DPI scaling cannot push a card off screen.
+        /// Places every open card on the target monitor according to the configured
+        /// NotificationPosition setting. Position is applied in physical pixels so DPI
+        /// scaling cannot push a card off screen.
         /// </summary>
         private void Restack(string reason)
         {
@@ -216,12 +216,11 @@ namespace CrownControllerHUD.Services
                 int vmargin = area.Scale(VerticalMarginDip);
                 int gap = area.Scale(GapDip);
 
-                int right = area.Work.Right - margin;
-                int y = area.Work.Bottom - vmargin;
+                // Get notification position from settings
+                var position = _settingsService.Settings.UI.NotificationPosition;
 
-                for (int i = _open.Count - 1; i >= 0; i--)
+                foreach (var card in _open)
                 {
-                    var card = _open[i];
                     if (card.Handle == IntPtr.Zero)
                         continue;
 
@@ -231,15 +230,13 @@ namespace CrownControllerHUD.Services
                     if (rect.Width <= 0 || rect.Height <= 0)
                         continue;
 
-                    int x = right - rect.Width;
-                    y -= rect.Height;
+                    int x, y;
+                    CalculatePosition(position, area, rect, margin, vmargin, gap, out x, out y);
 
                     bool moved = NativeWindowMethods.MoveTo(card.Handle, x, y);
 
                     if (!card.Placed)
                     {
-                        // First successful placement: reveal, start the countdown and log
-                        // the exact coordinates so placement is verifiable from the log.
                         card.Placed = true;
                         card.PlayEnterAnimation();
                         NativeWindowMethods.ReassertTopmost(card.Handle);
@@ -251,13 +248,54 @@ namespace CrownControllerHUD.Services
                             area.Work.Left, area.Work.Top, area.Work.Right, area.Work.Bottom,
                             area.Dpi, moved, reason);
                     }
-
-                    y -= gap;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Notify] Failed to reposition notification cards");
+            }
+        }
+
+        private void CalculatePosition(string position, NativeWindowMethods.MonitorWorkArea area, 
+            NativeWindowMethods.RECT rect, int margin, int vmargin, int gap, out int x, out int y)
+        {
+            // Default to bottom-right
+            int right = area.Work.Right - margin;
+            int bottom = area.Work.Bottom - vmargin;
+
+            // Calculate base positions
+            int left = area.Work.Left + margin;
+            int top = area.Work.Top + vmargin;
+            int centerX = area.Work.Left + (area.Work.Width - rect.Width) / 2;
+            int centerY = area.Work.Top + (area.Work.Height - rect.Height) / 2;
+
+            switch (position)
+            {
+                case "BottomLeft":
+                    x = left;
+                    y = bottom - rect.Height;
+                    break;
+                case "TopRight":
+                    x = right - rect.Width;
+                    y = top;
+                    break;
+                case "TopLeft":
+                    x = left;
+                    y = top;
+                    break;
+                case "TopCenter":
+                    x = centerX;
+                    y = top;
+                    break;
+                case "BottomCenter":
+                    x = centerX;
+                    y = bottom - rect.Height;
+                    break;
+                case "BottomRight":
+                default:
+                    x = right - rect.Width;
+                    y = bottom - rect.Height;
+                    break;
             }
         }
 
