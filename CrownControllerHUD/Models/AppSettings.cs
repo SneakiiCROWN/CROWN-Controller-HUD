@@ -189,6 +189,7 @@ namespace CrownControllerHUD.Models
         public int RefreshIntervalMs { get; set; } = 2000;
         public bool EnableAnimations { get; set; } = true;
         public string AccentColor { get; set; } = "#0078D4"; // Xbox Green
+        public string NotificationPosition { get; set; } = "BottomRight"; // BottomRight, BottomLeft, TopRight, TopLeft, TopCenter, BottomCenter
     }
 
     public class ControllerSettings

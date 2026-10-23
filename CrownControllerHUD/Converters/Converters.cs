@@ -229,7 +229,7 @@ namespace CrownControllerHUD.Converters
             if (value == null) return "null";
             if (value is byte[] bytes) return $"[{bytes.Length} bytes] {BitConverter.ToString(bytes)}";
             if (value is Array array) return $"[{array.Length} items]";
-            return value.ToString();
+            return value.ToString() ?? "null";
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

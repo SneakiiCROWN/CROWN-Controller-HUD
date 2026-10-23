@@ -83,7 +83,7 @@ namespace CrownControllerHUD.Services
             public string DeviceId = string.Empty;
             public string? Name;
             public string? PnpInstanceId;
-            public Guid? ContainerId;
+            public string? ContainerId;
             public ControllerConnectionState State = ControllerConnectionState.Unknown;
             public string Source = "no-live-signal";
             public bool? PnpPresent;
@@ -199,9 +199,24 @@ namespace CrownControllerHUD.Services
                     state.PnpPresent = pnpPresentVal ? true : (pnpPresent.ContainsKey(deviceId) ? false : (bool?)null);
                     state.WinRTConnected = winrtConnectedVal ? true : (winrtConnected.ContainsKey(deviceId) ? false : (bool?)null);
                     state.XInputConnected = xinputConnectedVal ? true : (xinputConnected.ContainsKey(deviceId) ? false : (bool?)null);
-                    state.Name = pnpPresent.TryGetValue(deviceId, out var pnp2) ? pnp2.Name :
-                                 winrtConnected.TryGetValue(deviceId, out var winrt2) ? winrt2.Name :
-                                 xinputConnected.TryGetValue(deviceId, out var xinput2) ? xinput2.Name : state.Name;
+                    
+                    // Store PnP identity info
+                    if (pnpPresent.TryGetValue(deviceId, out var pnp2))
+                    {
+                        state.Name = pnp2.Name;
+                        state.ContainerId = pnp2.ContainerId;
+                        state.PnpInstanceId = pnp2.PnpInstanceId;
+                    }
+                    else if (winrtConnected.TryGetValue(deviceId, out var winrt2))
+                    {
+                        state.Name = winrt2.Name;
+                        state.ContainerId = winrt2.ContainerId;
+                        state.PnpInstanceId = winrt2.PnpInstanceId;
+                    }
+                    else if (xinputConnected.TryGetValue(deviceId, out var xinput2))
+                    {
+                        state.Name = xinput2.Name;
+                    }
 
                     var (nextState, source) = ComputeState(state);
 
@@ -263,9 +278,9 @@ namespace CrownControllerHUD.Services
             }
         }
 
-        private Dictionary<string, (bool Present, string? Name)> GetPnpPresentDevices()
+        private Dictionary<string, (bool Present, string? Name, string? ContainerId, string? PnpInstanceId)> GetPnpPresentDevices()
         {
-            var result = new Dictionary<string, (bool Present, string? Name)>(StringComparer.OrdinalIgnoreCase);
+            var result = new Dictionary<string, (bool Present, string? Name, string? ContainerId, string? PnpInstanceId)>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
@@ -287,7 +302,7 @@ namespace CrownControllerHUD.Services
                         if (container == null) continue;
 
                         var deviceId = $"CTRL\\{container}\\{record.VendorId:X4}_{record.ProductId:X4}";
-                        result[deviceId] = (true, record.DisplayName);
+                        result[deviceId] = (true, record.DisplayName, container, instanceId);
                     }
                     catch { }
                 }
@@ -305,7 +320,7 @@ namespace CrownControllerHUD.Services
                         if (container == null) continue;
 
                         var deviceId = $"CTRL\\{container}\\{record.VendorId:X4}_{record.ProductId:X4}";
-                        result[deviceId] = (true, record.DisplayName);
+                        result[deviceId] = (true, record.DisplayName, container, instanceId);
                     }
                     catch { }
                 }
@@ -318,9 +333,9 @@ namespace CrownControllerHUD.Services
             return result;
         }
 
-        private Dictionary<string, (bool Connected, string? Name)> GetWinRTConnectedDevices()
+        private Dictionary<string, (bool Connected, string? Name, string? ContainerId, string? PnpInstanceId)> GetWinRTConnectedDevices()
         {
-            var result = new Dictionary<string, (bool Connected, string? Name)>(StringComparer.OrdinalIgnoreCase);
+            var result = new Dictionary<string, (bool Connected, string? Name, string? ContainerId, string? PnpInstanceId)>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
@@ -342,7 +357,7 @@ namespace CrownControllerHUD.Services
                         if (container == null) continue;
 
                         var deviceId = $"CTRL\\{container}\\{raw.HardwareVendorId:X4}_{raw.HardwareProductId:X4}";
-                        result[deviceId] = (true, raw.DisplayName);
+                        result[deviceId] = (true, raw.DisplayName, container, instanceId);
                     }
                     catch { }
                 }

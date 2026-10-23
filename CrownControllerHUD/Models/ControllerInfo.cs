@@ -252,7 +252,6 @@ namespace CrownControllerHUD.Models
 
         public static string GetIconPath(this ControllerType type)
         {
-            var basePath = "Assets/Xbox Series";
             return type switch
             {
                 ControllerType.XboxOne or ControllerType.XboxOneS or ControllerType.XboxOneElite or ControllerType.XboxEliteSeries2 or ControllerType.XboxSeriesX or ControllerType.XboxSeriesS => "Assets/Xbox Series/Controller.svg",

@@ -94,6 +94,10 @@ namespace CrownControllerHUD
             CloseToTray.IsChecked = s.General.CloseToTray;
             ShowDisconnected.IsChecked = s.Controllers.ShowDisconnectedControllers;
 
+            // Theme
+            SetComboBoxSelection(ThemeSelector, s.General.Theme);
+            SetComboBoxSelection(AppearanceThemeSelector, s.General.Theme);
+
             // Notifications
             EnableNotifications.IsChecked = s.Notifications.EnableNotifications;
             NotifyOnConnect.IsChecked = s.Notifications.NotifyOnConnect;
@@ -108,6 +112,9 @@ namespace CrownControllerHUD
             DurationText.Text = $"{s.Notifications.NotificationDurationMs} ms";
             PlaySound.IsChecked = s.Notifications.PlaySound;
 
+            // Notification Position
+            SetComboBoxSelection(NotificationPosition, s.UI.NotificationPosition);
+
             // Battery
             EnableBatteryTelemetry.IsChecked = s.Battery.EnableBatteryTelemetry;
             EnableGameControllerApiBattery.IsChecked = s.Battery.EnableGameControllerApiBattery;
@@ -119,7 +126,7 @@ namespace CrownControllerHUD
             BatteryRefreshIntervalText.Text = $"{s.Battery.RefreshIntervalSeconds} s";
             BatteryStaleAfter.Value = s.Battery.StaleAfterSeconds;
             BatteryStaleAfterText.Text = $"{s.Battery.StaleAfterSeconds} s";
-            
+
             Warn50.IsChecked = s.Notifications.BatteryWarnings.Any(l => l.Percent == 50 && l.Enabled);
             Warn20.IsChecked = s.Notifications.BatteryWarnings.Any(l => l.Percent == 20 && l.Enabled);
             Warn15.IsChecked = s.Notifications.BatteryWarnings.Any(l => l.Percent == 15 && l.Enabled);
@@ -129,10 +136,42 @@ namespace CrownControllerHUD
             // Sync startup checkbox with actual registry state
             StartWithWindows.IsChecked = _startupService.IsStartupEnabled;
 
+            // Appearance
+            SetComboBoxSelection(AccentColorSelector, s.UI.AccentColor);
+            UpdateAccentColorPreview(s.UI.AccentColor);
+            EnableAnimations.IsChecked = s.UI.EnableAnimations;
+            CompactMode.IsChecked = s.UI.CompactMode;
+
             // Load saved controllers
             LoadSavedControllers();
 
             _isLoading = false;
+        }
+
+        private void SetComboBoxSelection(ComboBox comboBox, string value)
+        {
+            if (comboBox == null) return;
+            foreach (ComboBoxItem item in comboBox.Items)
+            {
+                if (item.Tag?.ToString() == value)
+                {
+                    comboBox.SelectedItem = item;
+                    break;
+                }
+            }
+        }
+
+        private void UpdateAccentColorPreview(string color)
+        {
+            if (AccentColorPreview != null)
+            {
+                try
+                {
+                    var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color);
+                    AccentColorPreview.Background = brush;
+                }
+                catch { }
+            }
         }
 
         private void LoadSavedControllers()
@@ -207,6 +246,7 @@ namespace CrownControllerHUD
             s.General.MinimizeToTray = MinimizeToTray.IsChecked ?? false;
             s.General.CloseToTray = CloseToTray.IsChecked ?? false;
             s.Controllers.ShowDisconnectedControllers = ShowDisconnected.IsChecked ?? false;
+            s.General.Theme = GetComboBoxSelection(ThemeSelector) ?? GetComboBoxSelection(AppearanceThemeSelector) ?? "Dark";
 
             // Notifications
             s.Notifications.EnableNotifications = EnableNotifications.IsChecked ?? false;
@@ -220,6 +260,7 @@ namespace CrownControllerHUD
             s.Notifications.NotifyOnBatteryRecovered = NotifyOnBatteryRecovered.IsChecked ?? false;
             s.Notifications.NotificationDurationMs = (int)NotificationDuration.Value;
             s.Notifications.PlaySound = PlaySound.IsChecked ?? false;
+            s.UI.NotificationPosition = GetComboBoxSelection(NotificationPosition) ?? "BottomRight";
 
             // Battery
             s.Battery.EnableBatteryTelemetry = EnableBatteryTelemetry.IsChecked ?? false;
@@ -244,6 +285,11 @@ namespace CrownControllerHUD
                 };
             }
 
+            // Appearance
+            s.UI.AccentColor = GetComboBoxSelection(AccentColorSelector) ?? "#0078D4";
+            s.UI.EnableAnimations = EnableAnimations.IsChecked ?? false;
+            s.UI.CompactMode = CompactMode.IsChecked ?? false;
+
             // Controllers - save notification enable state from saved controllers list
             foreach (var vm in SavedControllers)
             {
@@ -257,6 +303,13 @@ namespace CrownControllerHUD
 
             s.Normalize();
             _ = _settingsService.SaveAsync();
+        }
+
+        private string? GetComboBoxSelection(ComboBox comboBox)
+        {
+            if (comboBox?.SelectedItem is ComboBoxItem item)
+                return item.Tag?.ToString();
+            return null;
         }
 
         private void UpdateCategorySelection(string activePanelName)
@@ -369,6 +422,76 @@ namespace CrownControllerHUD
             _ = _notificationService.ShowTestNotificationAsync();
         }
 
+        private void ThemeSelector_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoading) return;
+            // Sync both theme selectors
+            if (sender == ThemeSelector)
+                SetComboBoxSelection(AppearanceThemeSelector, GetComboBoxSelection(ThemeSelector) ?? "Dark");
+            else
+                SetComboBoxSelection(ThemeSelector, GetComboBoxSelection(AppearanceThemeSelector) ?? "Dark");
+            SaveSettings();
+        }
+
+        private void AppearanceThemeSelector_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoading) return;
+            SetComboBoxSelection(ThemeSelector, GetComboBoxSelection(AppearanceThemeSelector) ?? "Dark");
+            SaveSettings();
+        }
+
+        private void NotificationPosition_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoading) return;
+            SaveSettings();
+        }
+
+        private void AccentColorSelector_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoading) return;
+            var color = GetComboBoxSelection(AccentColorSelector);
+            if (color == "Custom")
+            {
+                CustomColorPanel.Visibility = Visibility.Visible;
+                if (CustomColorHex != null)
+                    CustomColorHex.Focus();
+            }
+            else
+            {
+                CustomColorPanel.Visibility = Visibility.Collapsed;
+                if (!string.IsNullOrEmpty(color))
+                    UpdateAccentColorPreview(color);
+            }
+            SaveSettings();
+        }
+
+        private void ApplyCustomColor_Click(object sender, RoutedEventArgs e)
+        {
+            if (CustomColorHex == null) return;
+            var hex = CustomColorHex.Text.Trim();
+            if (!hex.StartsWith("#")) hex = "#" + hex;
+            if (System.Text.RegularExpressions.Regex.IsMatch(hex, "^#[0-9A-Fa-f]{6}$"))
+            {
+                UpdateAccentColorPreview(hex);
+                // Update the custom item's tag
+                foreach (ComboBoxItem item in AccentColorSelector.Items)
+                {
+                    if (item.Tag?.ToString() == "Custom")
+                    {
+                        item.Tag = hex;
+                        item.Content = $"Custom ({hex})";
+                        break;
+                    }
+                }
+                AccentColorSelector.SelectedItem = AccentColorSelector.Items.Cast<ComboBoxItem>().FirstOrDefault(i => i.Tag?.ToString() == hex);
+                SaveSettings();
+            }
+            else
+            {
+                MessageBox.Show("Invalid color format. Use #RRGGBB format.", "Invalid Color", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private void RenameSavedController(string? deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
@@ -384,7 +507,7 @@ namespace CrownControllerHUD
                 if (!string.IsNullOrEmpty(newName))
                 {
                     vm.CustomName = newName;
-                    
+
                     // Update settings
                     var settings = _settingsService.Settings;
                     if (!settings.Controllers.Overrides.ContainsKey(deviceId))

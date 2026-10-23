@@ -149,6 +149,15 @@
                                   Style="{StaticResource SettingsCheckBoxStyle}"/>
                         <TextBlock Text="Display controllers even when they're powered off." Style="{StaticResource SettingDescriptionStyle}"/>
                         
+                        <TextBlock Text="Theme" Style="{StaticResource SectionHeaderStyle}"/>
+                        <ComboBox x:Name="ThemeSelector" Width="250" Margin="0,4" 
+                                  SelectionChanged="ThemeSelector_Changed">
+                            <ComboBoxItem Content="Dark" Tag="Dark"/>
+                            <ComboBoxItem Content="Light" Tag="Light"/>
+                            <ComboBoxItem Content="System" Tag="System"/>
+                        </ComboBox>
+                        <TextBlock Text="Dark, Light, or follow Windows system theme." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
                         <Separator Margin="0,12,0,8" Background="#333333"/>
                         <Button Content="Reset All Settings to Defaults" Style="{StaticResource DangerButtonStyle}" 
                                 Margin="0,4,0,0" Padding="16,8" HorizontalAlignment="Left"
@@ -191,10 +200,16 @@
                         <CheckBox x:Name="PlaySound" Content="Play notification sound" Style="{StaticResource SettingsCheckBoxStyle}"/>
                         
                         <TextBlock Text="Position" Style="{StaticResource SectionHeaderStyle}"/>
-                        <ComboBox x:Name="NotificationPosition" Width="250" Margin="0,4" IsEnabled="False">
-                            <ComboBoxItem Content="Bottom Right (default)"/>
+                        <ComboBox x:Name="NotificationPosition" Width="250" Margin="0,4" 
+                                  SelectionChanged="NotificationPosition_Changed">
+                            <ComboBoxItem Content="Bottom Right" Tag="BottomRight"/>
+                            <ComboBoxItem Content="Bottom Left" Tag="BottomLeft"/>
+                            <ComboBoxItem Content="Top Right" Tag="TopRight"/>
+                            <ComboBoxItem Content="Top Left" Tag="TopLeft"/>
+                            <ComboBoxItem Content="Top Center" Tag="TopCenter"/>
+                            <ComboBoxItem Content="Bottom Center" Tag="BottomCenter"/>
                         </ComboBox>
-                        <TextBlock Text="Position selection coming in a future update." Style="{StaticResource SettingDescriptionStyle}"/>
+                        <TextBlock Text="Where notifications appear on screen." Style="{StaticResource SettingDescriptionStyle}"/>
                         
                         <Separator Margin="0,12,0,8" Background="#333333"/>
                         <Button Content="Test Notification" Style="{StaticResource PrimaryButtonStyle}" 
@@ -405,10 +420,56 @@
                     <!-- Appearance Settings -->
                     <StackPanel x:Name="AppearancePanel" Visibility="Collapsed">
                         <TextBlock Text="Appearance" Style="{StaticResource PanelHeaderStyle}"/>
-                        <TextBlock Text="Theme and accent colour customisation coming in a future update." 
-                                   FontSize="12" Foreground="#888888" Margin="0,8"/>
-                        <TextBlock Text="Default: CROWN Dark (premium dark theme)" 
-                                   FontSize="12" Foreground="#CCCCCC" Margin="0,4"/>
+                        
+                        <TextBlock Text="Theme" Style="{StaticResource SectionHeaderStyle}"/>
+                        <ComboBox x:Name="AppearanceThemeSelector" Width="250" Margin="0,4" 
+                                  SelectionChanged="AppearanceThemeSelector_Changed">
+                            <ComboBoxItem Content="Dark (CROWN Premium)" Tag="Dark"/>
+                            <ComboBoxItem Content="Light" Tag="Light"/>
+                            <ComboBoxItem Content="System" Tag="System"/>
+                        </ComboBox>
+                        <TextBlock Text="Choose the base theme. Dark is recommended for gaming." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <TextBlock Text="Accent Color" Style="{StaticResource SectionHeaderStyle}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4">
+                            <Border x:Name="AccentColorPreview" Width="32" Height="32" CornerRadius="6" 
+                                    BorderBrush="#333333" BorderThickness="1" Margin="0,0,12,0"
+                                    Background="#0078D4" ToolTip="Current accent color"/>
+                            <ComboBox x:Name="AccentColorSelector" Width="250" Margin="0,4" 
+                                      SelectionChanged="AccentColorSelector_Changed">
+                                <ComboBoxItem Content="Xbox Green" Tag="#0078D4"/>
+                                <ComboBoxItem Content="Electric Blue" Tag="#00A8FF"/>
+                                <ComboBoxItem Content="Emerald" Tag="#10B981"/>
+                                <ComboBoxItem Content="Amber" Tag="#F59E0B"/>
+                                <ComboBoxItem Content="Rose" Tag="#F43F5E"/>
+                                <ComboBoxItem Content="Violet" Tag="#8B5CF6"/>
+                                <ComboBoxItem Content="Orange" Tag="#F97316"/>
+                                <ComboBoxItem Content="Cyan" Tag="#06B6D4"/>
+                                <ComboBoxItem Content="Custom..." Tag="Custom"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,4" Visibility="Collapsed" x:Name="CustomColorPanel">
+                            <TextBlock Text="Hex:" FontSize="12" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="CustomColorHex" Width="120" Margin="0,0,8,0" 
+                                     Background="#1F1F1F" BorderBrush="#333333" BorderThickness="1"
+                                     Foreground="#FFFFFF" Padding="8,4"
+                                     ToolTip="Enter hex color code (e.g., #FF0000)"/>
+                            <Button Content="Apply" Style="{StaticResource PrimaryButtonStyle}" Padding="12,4"
+                                    Click="ApplyCustomColor_Click"/>
+                        </StackPanel>
+                        <TextBlock Text="Accent color affects buttons, highlights, and notification accents." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <TextBlock Text="UI Options" Style="{StaticResource SectionHeaderStyle}"/>
+                        <CheckBox x:Name="EnableAnimations" Content="Enable animations" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Smooth transitions for notifications and UI elements." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <CheckBox x:Name="CompactMode" Content="Compact mode" Style="{StaticResource SettingsCheckBoxStyle}"/>
+                        <TextBlock Text="Reduce padding and spacing for smaller screens." Style="{StaticResource SettingDescriptionStyle}"/>
+                        
+                        <Separator Margin="0,12,0,8" Background="#333333"/>
+                        <Button Content="Reset All Settings to Defaults" Style="{StaticResource DangerButtonStyle}" 
+                                Margin="0,4,0,0" Padding="16,8" HorizontalAlignment="Left"
+                                Click="ResetDefaults_Click"/>
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
